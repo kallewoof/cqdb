@@ -30,3 +30,18 @@
 *.exe
 *.out
 *.app
+
+# Local
+.deps
+.dirstamp
+config
+config.log
+config.status
+configure
+Makefile
+Makefile.in
+aclocal.m4
+autom4te.cache
+libtool
+test-cqdb
+.vscode
