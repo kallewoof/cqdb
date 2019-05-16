@@ -33,6 +33,19 @@ inline size_t db_file_count(const std::string& dbpath = "/tmp/cq-db-tests") {
     return l.size();
 }
 
+inline std::shared_ptr<cq::chronology<test_object>> open_chronology(const std::string& dbpath = "/tmp/cq-db-tests", bool reset = false) {
+    if (reset) cq::rmdir_r(dbpath);
+    return std::make_shared<cq::chronology<test_object>>(dbpath, "cluster", 1008);
+}
+
+inline std::shared_ptr<cq::chronology<test_object>> new_chronology(const std::string& dbpath = "/tmp/cq-db-tests") {
+    return open_chronology(dbpath, true);
+}
+
+inline size_t chronology_file_count(const std::string& dbpath = "/tmp/cq-db-tests") {
+    return db_file_count(dbpath);
+}
+
 TEST_CASE("Objects", "[objects]") {
     SECTION("construction") {
         // nothing uses the non-explicit two-param constructor
@@ -58,11 +71,11 @@ TEST_CASE("Objects", "[objects]") {
 TEST_CASE("Registry", "[registry]") {
     SECTION("empty") {
         cq::registry empty(2016);
-        REQUIRE(empty.m_clusters.m.size() == 0);
+        REQUIRE(empty.get_clusters().size() == 0);
         cq::chv_stream stream;
         empty.serialize(&stream);
-        // should be able to serialize above registry in 5 bytes (size (1) + cluster size (4))
-        REQUIRE(stream.tell() == 5);
+        // should be able to serialize above registry in 6 bytes (size (1) + cluster size (4) + tip (1))
+        REQUIRE(stream.tell() == 6);
         cq::registry reg2;
         stream.seek(0, SEEK_SET);
         reg2.deserialize(&stream);
@@ -71,12 +84,12 @@ TEST_CASE("Registry", "[registry]") {
 
     SECTION("one entry") {
         cq::registry one(2016);
-        one.m_clusters.m.insert(1);
-        REQUIRE(one.m_clusters.m.size() == 1);
+        one.open_cluster_for_segment(1 * 2016);
+        REQUIRE(one.get_clusters().size() == 1);
         cq::chv_stream stream;
         one.serialize(&stream);
-        // should be able to serialize above registry in 6 bytes (size (1) + entry (1) + cluster size (4))
-        REQUIRE(stream.tell() == 6);
+        // should be able to serialize above registry in 7 bytes (size (1) + entry (1) + cluster size (4) + tip (1))
+        REQUIRE(stream.tell() == 7);
         cq::registry reg2;
         stream.seek(0, SEEK_SET);
         reg2.deserialize(&stream);
@@ -85,14 +98,14 @@ TEST_CASE("Registry", "[registry]") {
 
     SECTION("two entries") {
         cq::registry reg(2016);
-        reg.m_clusters.m.insert(1);
-        reg.m_clusters.m.insert(128);
-        REQUIRE(reg.m_clusters.m.size() == 2);
+        reg.open_cluster_for_segment(1 * 2016);
+        reg.open_cluster_for_segment(128 * 2016);
+        REQUIRE(reg.get_clusters().size() == 2);
         cq::chv_stream stream;
         reg.serialize(&stream);
-        // should be able to serialize above registry in 7 bytes (size (1) + entries (1 + 1) + cluster size (4))
+        // should be able to serialize above registry in 8 bytes (size (1) + entries (1 + 1) + cluster size (4) + tip (1))
         // note that entry 2 is 128, but relative, so 127
-        REQUIRE(stream.tell() == 7);
+        REQUIRE(stream.tell() == 8);
         cq::registry reg2;
         stream.seek(0, SEEK_SET);
         reg2.deserialize(&stream);
@@ -101,16 +114,17 @@ TEST_CASE("Registry", "[registry]") {
 
     SECTION("opening clusters for segments") {
         cq::registry reg(2016);
-        REQUIRE(reg.m_clusters.m.size() == 0);
+        REQUIRE(reg.get_clusters().size() == 0);
         REQUIRE(reg.open_cluster_for_segment(2015) == 0);
-        REQUIRE(reg.m_clusters.m.size() == 1);
+        REQUIRE(reg.get_clusters().size() == 1);
         REQUIRE(reg.open_cluster_for_segment(2016) == 1);
-        REQUIRE(reg.m_clusters.m.size() == 2);
+        REQUIRE(reg.get_clusters().size() == 2);
         cq::chv_stream stream;
         reg.serialize(&stream);
-        // should be able to serialize above registry in 7 bytes (size (1) + entries (1 + 1) + cluster size (4))
+        // should be able to serialize above registry in 8 bytes (size (1) + entries (1 + 1) + cluster size (4) + tip (1))
         // why 1 + 1 despite 2015? because we are storing the *cluster numbers* not the segment ids, i.e. 0 and 1 not 2015 and 2016
-        REQUIRE(stream.tell() == 7);
+        // why 1 for tip, despite it being 2016? because tip is serialized as (tip - cluster * cluster_size) i.e. (2016 - 1 * 2016) = 0, here
+        REQUIRE(stream.tell() == 8);
         cq::registry reg2;
         stream.seek(0, SEEK_SET);
         reg2.deserialize(&stream);
@@ -270,6 +284,28 @@ TEST_CASE("Database", "[db]") {
         REQUIRE(*ob == ob2);
     }
 
+    SECTION("should remember file states on reopen") {
+        cq::id obid;
+        uint256 obhash;
+        long pos;
+        {
+            auto db = new_db();
+            auto ob = test_object::make_random_unknown();
+            obhash = ob->m_hash;
+            db->begin_segment(1);
+            pos = db->m_file->tell();
+            obid = db->store(ob.get());
+        }
+        {
+            auto db = open_db();
+            db->m_file->seek(pos, SEEK_SET);
+            test_object ob;
+            db->load(&ob);
+            REQUIRE(ob.m_sid == obid);
+            REQUIRE(ob.m_hash == obhash);
+        }
+    }
+
     SECTION("storing then loading a single object") {
         auto db = new_db();
         db->begin_segment(1);
@@ -282,6 +318,21 @@ TEST_CASE("Database", "[db]") {
         REQUIRE(ob->m_hash == ob2.m_hash);
         REQUIRE(ob->m_sid == ob2.m_sid);
         REQUIRE(*ob == ob2);
+    }
+
+    SECTION("storing one then attempting to load two objects") {
+        auto db = new_db();
+        db->begin_segment(1);
+        auto ob = test_object::make_random_unknown();
+        auto pos = db->m_file->tell();
+        auto obid = db->store(ob.get());
+        test_object ob2;
+        db->m_file->seek(pos, SEEK_SET);
+        db->load(&ob2);
+        REQUIRE(ob->m_hash == ob2.m_hash);
+        REQUIRE(ob->m_sid == ob2.m_sid);
+        REQUIRE(*ob == ob2);
+        REQUIRE_THROWS_AS(db->load(&ob2), cq::io_error);
     }
 
     SECTION("storing two objects in a row") {
@@ -685,7 +736,7 @@ TEST_CASE("Database", "[db]") {
         db->begin_segment(1);
         auto pos = db->m_file->tell();
         size_t filecount = db_file_count();
-        REQUIRE(1 == reg.m_clusters.size());
+        REQUIRE(1 == reg.get_clusters().size());
         REQUIRE(0 == db->get_cluster());
         REQUIRE(1 == db->get_header()->get_segment_count());
         REQUIRE(pos == db->get_header()->get_segment_position(1));
@@ -693,7 +744,7 @@ TEST_CASE("Database", "[db]") {
         REQUIRE(1 == db->get_header()->get_last_segment());
         db->begin_segment(1024);
         auto pos2 = db->m_file->tell();
-        REQUIRE(2 == reg.m_clusters.size());
+        REQUIRE(2 == reg.get_clusters().size());
         REQUIRE(1 == db->get_cluster());
         size_t filecount2 = db_file_count();
         REQUIRE(filecount2 == filecount + 1);
@@ -862,21 +913,17 @@ TEST_CASE("Time relative", "[timerel]") {
 }
 
 TEST_CASE("chronology", "[chronology]") {
+    uint256 hash;
+
     // template<typename T>
     // class chronology : public db {
     // public:
-    //     using db::m_file;
     //     long current_time;
-    //     long pending_time;
-    //     uint8_t pending_cmd;
-    //     static const uint8_t none = 0xff;
     //     std::map<id, std::shared_ptr<T>> m_dictionary;
     //     std::map<uint256, id> m_references;
 
     //     chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024)
     //     : current_time(0)
-    //     , pending_time(0)
-    //     , pending_cmd(0xff)
     //     , db(dbpath, prefix, cluster_size)
     //     {}
 
@@ -891,93 +938,689 @@ TEST_CASE("chronology", "[chronology]") {
         REQUIRE(cq::rmdir_r(dbpath));
     }
 
-    //     // command header is constructed as follows:
-    //     // bit range   purpose
-    //     // ----------- --------------------------------------------------------
-    //     // 0..4        protocol command space (0x00..0x0f, where 0x0e = "reference known", 0x0f = "reference unknown")
-    //     // 5           KNOWN. Reference is known (1; id varint) or unknown (0; FQR)
-    //     // 6..7        TIME_REL. Time relative value (00=same as last, 01=1 second later, 10=2 seconds later, 11=varint relative to previous timestamp)
-
-    //     inline uint8_t header(uint8_t cmd, long time, bool known) {
-    //         assert(cmd == (cmd & 0x0f));
-    //         return cmd | (known << 5) | time_rel_bits(time - current_time);
-    //     }
-
-    //     void prepare_header(uint8_t cmd, long time) {
-    //         assert(cmd == (cmd & 0x0f));
-    //         if (pending_cmd != none) {
-    //             // write pending command byte
-    //             uint8_t u8 = header(pending_cmd, pending_time, false);
-    //             m_file << u8;
-    //             _write_time(u8, current_time, pending_time);
+    //     void push_event(long timestamp, uint8_t cmd, std::shared_ptr<T> subject = nullptr, bool refer_only = true) {
+    //         bool known = subject.get() && m_references.count(subject->m_hash);
+    //         uint8_t header_byte = cmd | (known << 5) | time_rel_bits(timestamp - current_time);
+    //         *m_file << header_byte;
+    //         _write_time(header_byte, current_time, timestamp); // this updates current_time
+    //         if (subject.get()) {
+    //             if (known) {
+    //                 refer(subject.get());
+    //             } else if (refer_only) {
+    //                 refer(subject->m_hash);
+    //             } else {
+    //                 id obid = store(subject.get());
+    //                 m_dictionary[obid] = subject;
+    //                 m_references[subject->m_hash] = obid;
+    //             }
     //         }
-    //         pending_cmd = cmd;
-    //         pending_time = time;
     //     }
 
-    //     void mark(id known_id) {
-    //         if (pending_cmd != none) {
-    //             uint8_t u8 = header(pending_cmd, pending_time, true);
-    //             m_file << u8;
-    //             _write_time(u8, current_time, pending_time);
-    //             pending_cmd = none;
-    //             return;
+    //     bool pop_event(uint8_t& cmd, bool& known) {
+    //         uint8_t u8, timerel;
+    //         try {
+    //             read_cmd_time(u8, cmd, known, timerel, current_time);
+    //         } catch (std::ios_base::failure& f) {
+    //             return false;
     //         }
-    //         uint8_t u8 = header(0x0e, current_time, true);
-    //         // no _write_time() because current_time == current_time, so relative time is always 0
-    //         m_file << u8;
+    //         return true;
     //     }
 
-    //     void mark(const uint256& unknown_ref) {
-    //         if (pending_cmd != none) {
-    //             uint8_t u8 = header(pending_cmd, pending_time, false);
-    //             m_file << u8;
-    //             _write_time(u8, current_time, pending_time);
-    //             pending_cmd = none;
-    //             return;
+    //     std::shared_ptr<T>& pop_object(std::shared_ptr<T>& object) { load(object.get()); return object; }
+    //     id pop_reference()                                         { return derefer(); }
+    //     uint256& pop_reference(uint256& hash)                      { return derefer(hash); }
+
+    static const uint8_t cmd_add = 0x01;    // add <object>
+    static const uint8_t cmd_del = 0x02;    // del <object|ref>
+    static const uint8_t cmd_nop = 0x03;    // nop
+
+    SECTION("pushing one no-subject event") {
+        long pos;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_nop);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_nop == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            // known is irrelevant here
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing two no-subject events") {
+        long pos;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_nop);
+            chron->push_event(1557974776, cmd_nop);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_nop == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_nop == cmd);
+            REQUIRE(chron->current_time == 1557974776);
+            // known is irrelevant here
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing one single subject event") {
+        long pos;
+        uint256 obhash;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            auto ob = test_object::make_random_unknown();
+            obhash = ob->m_hash;
+            chron->push_event(1557974775, cmd_add, ob);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(!known);
+            // we did not turn off the 'refer only' flag, so this is an unknown reference
+            REQUIRE(chron->pop_reference(hash) == obhash);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing two subject events in a row") {
+        long pos;
+        uint256 obhash, obhash2;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            auto ob = test_object::make_random_unknown();
+            auto ob2 = test_object::make_random_unknown();
+            obhash = ob->m_hash;
+            obhash2 = ob2->m_hash;
+            chron->push_event(1557974775, cmd_add, ob);
+            chron->push_event(1557974776, cmd_add, ob2);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == obhash);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == obhash2);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing the same subject in two events") {
+        // because we are refer_only referencing, both pushes should show the object as unknown
+        long pos;
+        uint256 obhash;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            auto ob = test_object::make_random_unknown();
+            obhash = ob->m_hash;
+            chron->push_event(1557974775, cmd_add, ob);
+            chron->push_event(1557974776, cmd_del, ob);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == obhash);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == obhash);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing two subjects in four events") {
+        // because we are refer_only referencing, all pushes should show the objects as unknown
+        long pos;
+        uint256 obhash;
+        uint256 obhash2;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            auto ob = test_object::make_random_unknown();
+            auto ob2 = test_object::make_random_unknown();
+            obhash = ob->m_hash;
+            obhash2 = ob2->m_hash;
+            chron->push_event(1557974775, cmd_add, ob);
+            chron->push_event(1557974776, cmd_add, ob2);
+            chron->push_event(1557974777, cmd_del, ob2);
+            chron->push_event(1557974778, cmd_del, ob);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == obhash);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == obhash2);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            REQUIRE(chron->current_time == 1557974777);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == obhash2);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            REQUIRE(chron->current_time == 1557974778);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == obhash);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing one single subject event (refer_only=false)") {
+        long pos;
+        uint256 obhash;
+        cq::id obid;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            auto ob = test_object::make_random_unknown();
+            obhash = ob->m_hash;
+            chron->push_event(1557974775, cmd_add, ob, false);
+            obid = ob->m_sid;
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(!known);
+            std::shared_ptr<test_object> ob = chron->pop_object();
+            REQUIRE(ob->m_hash == obhash);
+            REQUIRE(ob->m_sid == obid);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing two subject events (refer_only=false)") {
+        long pos;
+        uint256 obhash, obhash2;
+        cq::id obid, obid2;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            auto ob = test_object::make_random_unknown();
+            auto ob2 = test_object::make_random_unknown();
+            obhash = ob->m_hash;
+            obhash2 = ob2->m_hash;
+            chron->push_event(1557974775, cmd_add, ob, false);
+            chron->push_event(1557974776, cmd_add, ob2, false);
+            obid = ob->m_sid;
+            obid2 = ob2->m_sid;
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(!known);
+            std::shared_ptr<test_object> ob = chron->pop_object();
+            REQUIRE(ob->m_hash == obhash);
+            REQUIRE(ob->m_sid == obid);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(!known);
+            ob = chron->pop_object();
+            REQUIRE(ob->m_hash == obhash2);
+            REQUIRE(ob->m_sid == obid2);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing the same subject in two events (refer_only=false)") {
+        long pos;
+        uint256 obhash;
+        cq::id obid;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            auto ob = test_object::make_random_unknown();
+            obhash = ob->m_hash;
+            chron->push_event(1557974775, cmd_add, ob, false);
+            obid = ob->m_sid;
+            chron->push_event(1557974776, cmd_del, ob, false);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(!known);
+            std::shared_ptr<test_object> ob = chron->pop_object();
+            REQUIRE(ob->m_hash == obhash);
+            REQUIRE(ob->m_sid == obid);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(known);
+            REQUIRE(chron->pop_reference() == obid);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing two subjects in four events (refer_only=false)") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, ob, false);
+            chron->push_event(1557974776, cmd_add, ob2, false);
+            chron->push_event(1557974777, cmd_del, ob, false);
+            chron->push_event(1557974778, cmd_del, ob2, false);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            std::shared_ptr<test_object> obx;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(!known);
+            obx = chron->pop_object();
+            REQUIRE(obx->m_hash == ob->m_hash);
+            REQUIRE(obx->m_sid == ob->m_sid);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(!known);
+            obx = chron->pop_object();
+            REQUIRE(obx->m_hash == ob2->m_hash);
+            REQUIRE(obx->m_sid == ob2->m_sid);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            REQUIRE(chron->current_time == 1557974777);
+            REQUIRE(known);
+            REQUIRE(chron->pop_reference() == ob->m_sid);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            REQUIRE(chron->current_time == 1557974778);
+            REQUIRE(known);
+            REQUIRE(chron->pop_reference() == ob2->m_sid);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("pushing two subject events (refer_only=false (1), true (2))") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, ob, false);
+            chron->push_event(1557974776, cmd_add, ob2);
+            chron->push_event(1557974777, cmd_del, ob);
+            chron->push_event(1557974778, cmd_del, ob2);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            std::shared_ptr<test_object> obx;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(!known);
+            obx = chron->pop_object();
+            REQUIRE(obx->m_hash == ob->m_hash);
+            REQUIRE(obx->m_sid == ob->m_sid);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == ob2->m_hash);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            REQUIRE(chron->current_time == 1557974777);
+            REQUIRE(known);
+            REQUIRE(chron->pop_reference() == ob->m_sid);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            REQUIRE(chron->current_time == 1557974778);
+            REQUIRE(!known);
+            REQUIRE(chron->pop_reference(hash) == ob2->m_hash);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    //     void push_event(long timestamp, uint8_t cmd, const std::set<std::shared_ptr<T>>& subjects) {
+    //         push_event(timestamp, cmd);
+    //         object* ts[subjects.size()];
+    //         size_t i = 0;
+    //         for (auto& tp : subjects) {
+    //             ts[i++] = tp.get();
     //         }
-    //         uint8_t u8 = header(0x0f, current_time, false);
-    //         // no _write_time() because current_time == current_time, so relative time is always 0
-    //         m_file << u8;
+    //         refer(ts, i);
     //     }
 
-    //     // repositories automate the process of tracking which objects have been stored (and thus can be referred to by their id)
-    //     // and which objects are unknown
-
-    //     // referencing an object has the following possible combinations:
-    //     //      id = id available
-    //     //      FQR = FQR (hash) available
-    //     //      T = object available
-    //     //      dct = object found in m_dictionary
-    //     //      ref = id found in m_references
-    //     //
-    //     //      id  FQR T   dct ref Outcome
-    //     //      === === === === === =============================================================================================================
-    //     //      no  no  no  -   -   unreferencable
-    //     //      no  yes no  -   no  reference unknown object with given FQR
-    //     //      no  yes no  -   yes see [ yes - - yes - ] (ref provides id and infers dct)
-    //     //      no  yes yes -   -   assign id to object, register known object to stream, add to dictionary/references
-    //     //      yes no  no  no  -   illegal reference; throws chronology_error (future 'repair' mode may load and reference unknown here instead)
-    //     //      yes -   -   yes -   reference known object with given id
-    //     //      yes -   yes no  -   id is outdated (object was purged); re-assign new id and re-register known object to stream, add to dict/refs
-    //     //      === === === === === =============================================================================================================
-
-    //     inline void register_object(const std::shared_ptr<T>& object) {
-    //         store(object.get());
+    //     void pop_references(std::set<id>& known, std::set<uint256>& unknown) {
+    //         known.clear();
+    //         unknown.clear();
+    //         derefer(known, unknown);
     //     }
 
-    //     inline void refer(const uint256& hash, id sid) {
-    //     //      yes -   -   yes -   reference known object with given id
-    //     //      yes -   yes no  -   id is outdated (object was purged); re-assign new id and re-register known object to stream, add to dict/refs
-    //         if (m_dictionary.count(sid)) {
-    //             // reference known object with given id
-    //             return mark(sid);
+    SECTION("single event with 2 unknown subjects") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, std::set<std::shared_ptr<test_object>>{ob, ob2});
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            // known is irrelevant
+            std::set<cq::id> known_set;
+            std::set<uint256> unknown_set;
+            chron->pop_references(known_set, unknown_set);
+            std::set<uint256> expected_us{ob->m_hash, ob2->m_hash};
+            REQUIRE(known_set.size() == 0);
+            REQUIRE(unknown_set.size() == 2);
+            REQUIRE(unknown_set == expected_us);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("single event with 2 known subjects") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, ob, false); // write full ref to make ob known
+            chron->push_event(1557974776, cmd_add, ob2, false); // write full ref to make ob known
+            chron->push_event(1557974777, cmd_del, std::set<std::shared_ptr<test_object>>{ob, ob2});
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(!known);
+            REQUIRE(chron->current_time == 1557974775);
+            std::shared_ptr<test_object> obx;
+            obx = chron->pop_object();
+            REQUIRE(*obx == *ob);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(!known);
+            REQUIRE(chron->current_time == 1557974776);
+            obx = chron->pop_object();
+            REQUIRE(*obx == *ob2);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            // known is irrelevant
+            REQUIRE(chron->current_time == 1557974777);
+            std::set<cq::id> known_set;
+            std::set<uint256> unknown_set;
+            chron->pop_references(known_set, unknown_set);
+            std::set<cq::id> expected_ks{ob->m_sid, ob2->m_sid};
+            REQUIRE(known_set.size() == 2);
+            REQUIRE(unknown_set.size() == 0);
+            REQUIRE(known_set == expected_ks);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("single event with 1 known 1 unknown subject") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, ob, false); // write full ref to make ob known
+            chron->push_event(1557974776, cmd_del, std::set<std::shared_ptr<test_object>>{ob, ob2});
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(!known);
+            REQUIRE(chron->current_time == 1557974775);
+            std::shared_ptr<test_object> obx = chron->pop_object();
+            REQUIRE(*obx == *ob);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            // known is irrelevant
+            REQUIRE(chron->current_time == 1557974776);
+            std::set<cq::id> known_set;
+            std::set<uint256> unknown_set;
+            chron->pop_references(known_set, unknown_set);
+            std::set<cq::id> expected_ks{ob->m_sid};
+            std::set<uint256> expected_us{ob2->m_hash};
+            REQUIRE(known_set.size() == 1);
+            REQUIRE(unknown_set.size() == 1);
+            REQUIRE(known_set == expected_ks);
+            REQUIRE(unknown_set == expected_us);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    //     void pop_reference_hashes(std::set<uint256>& mixed) {
+    //         std::set<id> known;
+    //         pop_references(known, mixed);
+    //         for (id i : known) {
+    //             mixed.insert(m_dictionary.at(i)->m_hash);
     //         }
-
     //     }
 
-    //     void refer(const uint256& hash) {
-    //         if (m_references.count(hash)) return refer(hash, m_references.at(hash));
+
+    SECTION("single event with 2 unknown subjects (ref as hash)") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, std::set<std::shared_ptr<test_object>>{ob, ob2});
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            // known is irrelevant
+            std::set<uint256> set;
+            chron->pop_reference_hashes(set);
+            std::set<uint256> expected{ob->m_hash, ob2->m_hash};
+            REQUIRE(set.size() == 2);
+            REQUIRE(set == expected);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("single event with 2 known subjects (ref as hash)") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, ob, false); // write full ref to make ob known
+            chron->push_event(1557974776, cmd_add, ob2, false); // write full ref to make ob known
+            chron->push_event(1557974777, cmd_del, std::set<std::shared_ptr<test_object>>{ob, ob2});
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(!known);
+            REQUIRE(chron->current_time == 1557974775);
+            std::shared_ptr<test_object> obx = chron->pop_object();
+            REQUIRE(*obx == *ob);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(!known);
+            REQUIRE(chron->current_time == 1557974776);
+            obx = chron->pop_object();
+            REQUIRE(*obx == *ob2);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            // known is irrelevant
+            REQUIRE(chron->current_time == 1557974777);
+            std::set<uint256> set;
+            chron->pop_reference_hashes(set);
+            std::set<uint256> expected{ob->m_hash, ob2->m_hash};
+            REQUIRE(set.size() == 2);
+            REQUIRE(set == expected);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("single event with 1 known 1 unknown subject (ref as hash)") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, ob, false); // write full ref to make ob known
+            chron->push_event(1557974776, cmd_del, std::set<std::shared_ptr<test_object>>{ob, ob2});
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(!known);
+            REQUIRE(chron->current_time == 1557974775);
+            std::shared_ptr<test_object> obx;
+            obx = chron->pop_object();
+            REQUIRE(*obx == *ob);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            // known is irrelevant
+            REQUIRE(chron->current_time == 1557974776);
+            std::set<uint256> set;
+            chron->pop_reference_hashes(set);
+            std::set<uint256> expected{ob->m_hash, ob2->m_hash};
+            REQUIRE(set.size() == 2);
+            REQUIRE(set == expected);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    //     void push_event(long timestamp, uint8_t cmd, const std::set<uint256>& subject_hashes) {
+    //         push_event(timestamp, cmd);
+    //         std::set<std::shared_ptr<T>> pool;
+    //         object* ts[subject_hashes.size()];
+    //         size_t i = 0;
+    //         for (auto& hash : subject_hashes) {
+    //             if (m_references.count(hash)) {
+    //                 // known
+    //                 ts[i] = m_dictionary.at(m_references.at(hash)).get();
+    //             } else {
+    //                 // unknown
+    //                 auto ob = std::make_shared<T>(hash);
+    //                 pool.insert(ob);
+    //                 ts[i] = ob.get();
+    //             }
+    //         }
+    //         refer(ts, i);
+    //     }
+
+    //     virtual void cluster_changed(id old_cluster_id, id new_cluster_id) override {
+    //         m_dictionary.clear();
+    //         m_references.clear();
     //     }
     // };
 }

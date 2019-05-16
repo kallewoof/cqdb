@@ -155,8 +155,20 @@ bool file::eof() {
     return false;
 }
 
-size_t file::write(const uint8_t* data, size_t len) { size_t w = fwrite(data, 1, len, m_fp); m_tell += w; return w; }
-size_t file::read(uint8_t* data, size_t len)        { size_t r = fread(data, 1, len, m_fp); m_tell += r; return r;  }
+size_t file::write(const uint8_t* data, size_t len) {
+    size_t w = fwrite(data, 1, len, m_fp);
+    if (w != len) throw io_error("write error");
+    m_tell += w;
+    return w;
+}
+
+size_t file::read(uint8_t* data, size_t len) {
+    size_t r = fread(data, 1, len, m_fp);
+    if (r != len) throw io_error("end of file");
+    m_tell += r;
+    return r;
+}
+
 void file::seek(long offset, int whence) {
     fseek(m_fp, offset, whence);
     // force "fix" in case we went over the edge
@@ -170,11 +182,17 @@ long file::tell() { return m_tell; }
 // char vector stream
 
 bool chv_stream::eof() { return m_tell == m_chv.size(); }
-size_t chv_stream::write(const uint8_t* data, size_t len) { m_tell = m_chv.size() + len; m_chv.insert(m_chv.end(), data, data + len); return len; }
+
+size_t chv_stream::write(const uint8_t* data, size_t len) {
+    m_tell = m_chv.size() + len;
+    m_chv.insert(m_chv.end(), data, data + len);
+    return len;
+}
+
 size_t chv_stream::read(uint8_t* data, size_t len)        {
     size_t r = m_chv.size() - m_tell;
     if (r > len) r = len;
-    if (len > r) len = r;
+    if (len > r) throw io_error("end of file"); // len = r;
     memcpy(data, &m_chv.data()[m_tell], len);
     m_tell += len;
     return r;

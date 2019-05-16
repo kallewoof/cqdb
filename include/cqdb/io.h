@@ -42,9 +42,6 @@ public:
     template<typename T> serializer& operator<<(const T& obj) { if (sizeof(T) != write((const uint8_t*)&obj, sizeof(obj))) throw fs_error("failed serialization"); return *this; }
     template<typename T> serializer& operator>>(T& obj) { if (sizeof(T) != read((uint8_t*)&obj, sizeof(obj))) throw fs_error("failed deserialization"); return *this; }
 
-    // template<typename T> friend size_t serialize(T t) { return write((uint8_t*)&t, sizeof(T)); }
-    // template<typename T> size_t deserialize(T& t) { return read((uint8_t*)&t, sizeof(T)); }
-
     virtual std::string to_string() const { return "?"; }
 };
 

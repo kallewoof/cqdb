@@ -13,11 +13,25 @@
 
 namespace cq {
 
+id registry::open_cluster_for_segment(id segment) {
+    if (segment > m_tip) {
+        if (m_clusters.m.size() == 0 || segment / m_cluster_size > m_tip / m_cluster_size) {
+            m_clusters.m.insert(segment / m_cluster_size);
+        }
+        m_tip = segment;
+    }
+    return segment / m_cluster_size;
+}
+
 void registry::serialize(serializer* stream) const {
     // CLUSTER SIZE
     stream->write((uint8_t*)&m_cluster_size, 4);
     // CLUSTERS
     m_clusters.serialize(stream);
+    // TIP
+    id sub = m_cluster_size * (m_clusters.m.size() ? *m_clusters.m.rbegin() : 0);
+    assert(m_tip >= sub);
+    varint(m_tip - sub).serialize(stream);
 }
 
 void registry::deserialize(serializer* stream) {
@@ -25,9 +39,9 @@ void registry::deserialize(serializer* stream) {
     stream->read((uint8_t*)&m_cluster_size, 4);
     // CLUSTERS
     m_clusters.deserialize(stream);
-    m_tip = m_clusters.size() > 0
-        ? *m_clusters.m.rbegin()
-        : 0;
+    // TIP
+    id add = m_cluster_size * (m_clusters.m.size() ? *m_clusters.m.rbegin() : 0);
+    m_tip = varint::load(stream) + add;
 }
 
 header::header(uint8_t version, uint64_t timestamp, id cluster) : m_cluster(cluster), m_version(version), m_timestamp_start(timestamp) {}
@@ -165,6 +179,8 @@ db::db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_si
 }
 
 db::~db() {
+    file regfile(m_dbpath + "/cq.registry", false, true);
+    m_reg.serialize(&regfile);
     if (m_header) delete m_header;
     if (m_file) delete m_file;
 }

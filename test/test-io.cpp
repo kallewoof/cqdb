@@ -1,5 +1,7 @@
 #include "catch.hpp"
 
+#include <assert.h>
+
 #include <cqdb/io.h>
 
 static inline cq::conditional* get_varint(uint8_t b, cq::id value) {

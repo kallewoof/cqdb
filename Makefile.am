@@ -15,6 +15,7 @@ EXTRA_LIBRARIES += \
 
 TESTS = $(TESTCQDB)
 check_PROGRAMS = $(TESTCQDB)
+noinst_PROGRAMS = $(TESTCQDB)
 lib_LTLIBRARIES = libcqdb.la
 
 .PHONY: FORCE check-symbols check-security

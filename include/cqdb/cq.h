@@ -32,25 +32,20 @@ public:
     }
 };
 
-struct registry : serializable {
+class registry : serializable {
+private:
     /**
      * A list of existing clusters in the registry.
      */
     unordered_set m_clusters;
+public:
     uint32_t m_cluster_size;
     id m_tip;
     prepare_for_serialization();
-    inline id open_cluster_for_segment(id segment) {
-        if (segment > m_tip) {
-            if (m_clusters.m.size() == 0 || segment / m_cluster_size > m_tip / m_cluster_size) {
-                m_clusters.m.insert(segment / m_cluster_size);
-            }
-            m_tip = segment;
-        }
-        return segment / m_cluster_size;
-    }
+    id open_cluster_for_segment(id segment);
     registry(uint32_t cluster_size = 1024) : m_cluster_size(cluster_size), m_tip(0) {}
-    inline bool operator==(const registry& other) const { return m_cluster_size == other.m_cluster_size && m_clusters == other.m_clusters; }
+    inline bool operator==(const registry& other) const { return m_cluster_size == other.m_cluster_size && m_clusters == other.m_clusters && m_tip == other.m_tip; }
+    inline const unordered_set& get_clusters() const { return m_clusters; }
 };
 
 class header : public serializable {
@@ -288,15 +283,26 @@ public:
         uint8_t u8, timerel;
         try {
             read_cmd_time(u8, cmd, known, timerel, current_time);
+        } catch (io_error) {
+            return false;
         } catch (std::ios_base::failure& f) {
             return false;
         }
         return true;
     }
 
-    std::shared_ptr<T>& pop_object(std::shared_ptr<T>& object) { load(object.get()); return object; }
-    id pop_reference()                                         { return derefer(); }
-    uint256& pop_reference(uint256& hash)                      { return derefer(hash); }
+    std::shared_ptr<T> pop_object() {
+        std::shared_ptr<T> object = std::make_shared<T>();
+        auto pos = m_file->tell();
+        load(object.get());
+        id obid = object->m_sid;
+        m_dictionary[obid] = object;
+        m_references[object->m_hash] = obid;
+        return m_dictionary.at(obid);
+    }
+
+    id pop_reference()                    { return derefer(); }
+    uint256& pop_reference(uint256& hash) { return derefer(hash); }
 
     void pop_references(std::set<id>& known, std::set<uint256>& unknown) {
         known.clear();
@@ -317,114 +323,6 @@ public:
         m_references.clear();
     }
 };
-
-// template<typename T>
-// class chronology : public db {
-// public:
-//     using db::m_file;
-//     long current_time;
-//     long pending_time;
-//     uint8_t pending_cmd;
-//     static const uint8_t none = 0xff;
-//     std::map<id, std::shared_ptr<T>> m_dictionary;
-//     std::map<uint256, id> m_references;
-
-//     chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024)
-//     : current_time(0)
-//     , pending_time(0)
-//     , pending_cmd(0xff)
-//     , db(dbpath, prefix, cluster_size)
-//     {}
-
-//     // command header is constructed as follows:
-//     // bit range   purpose
-//     // ----------- --------------------------------------------------------
-//     // 0..4        protocol command space (0x00..0x0f, where 0x0e = "reference known", 0x0f = "reference unknown")
-//     // 5           KNOWN. Reference is known (1; id varint) or unknown (0; FQR)
-//     // 6..7        TIME_REL. Time relative value (00=same as last, 01=1 second later, 10=2 seconds later, 11=varint relative to previous timestamp)
-
-//     inline uint8_t header(uint8_t cmd, long time, bool known) {
-//         assert(cmd == (cmd & 0x0f));
-//         return cmd | (known << 5) | time_rel_bits(time - current_time);
-//     }
-
-//     void prepare_header(uint8_t cmd, long time) {
-//         assert(cmd == (cmd & 0x0f));
-//         if (pending_cmd != none) {
-//             // write pending command byte
-//             uint8_t u8 = header(pending_cmd, pending_time, false);
-//             m_file << u8;
-//             _write_time(u8, current_time, pending_time);
-//         }
-//         pending_cmd = cmd;
-//         pending_time = time;
-//     }
-
-//     void mark(id known_id) {
-//         if (pending_cmd != none) {
-//             uint8_t u8 = header(pending_cmd, pending_time, true);
-//             m_file << u8;
-//             _write_time(u8, current_time, pending_time);
-//             pending_cmd = none;
-//             return;
-//         }
-//         uint8_t u8 = header(0x0e, current_time, true);
-//         // no _write_time() because current_time == current_time, so relative time is always 0
-//         m_file << u8;
-//     }
-
-//     void mark(const uint256& unknown_ref) {
-//         if (pending_cmd != none) {
-//             uint8_t u8 = header(pending_cmd, pending_time, false);
-//             m_file << u8;
-//             _write_time(u8, current_time, pending_time);
-//             pending_cmd = none;
-//             return;
-//         }
-//         uint8_t u8 = header(0x0f, current_time, false);
-//         // no _write_time() because current_time == current_time, so relative time is always 0
-//         m_file << u8;
-//     }
-
-//     // repositories automate the process of tracking which objects have been stored (and thus can be referred to by their id)
-//     // and which objects are unknown
-
-//     // referencing an object has the following possible combinations:
-//     //      id = id available
-//     //      FQR = FQR (hash) available
-//     //      T = object available
-//     //      dct = object found in m_dictionary
-//     //      ref = id found in m_references
-//     //
-//     //      id  FQR T   dct ref Outcome
-//     //      === === === === === =============================================================================================================
-//     //      no  no  no  -   -   unreferencable
-//     //      no  yes no  -   no  reference unknown object with given FQR
-//     //      no  yes no  -   yes see [ yes - - yes - ] (ref provides id and infers dct)
-//     //      no  yes yes -   -   assign id to object, register known object to stream, add to dictionary/references
-//     //      yes no  no  no  -   illegal reference; throws chronology_error (future 'repair' mode may load and reference unknown here instead)
-//     //      yes -   -   yes -   reference known object with given id
-//     //      yes -   yes no  -   id is outdated (object was purged); re-assign new id and re-register known object to stream, add to dict/refs
-//     //      === === === === === =============================================================================================================
-
-//     inline void register_object(const std::shared_ptr<T>& object) {
-//         store(object.get());
-//     }
-
-//     inline void refer(const uint256& hash, id sid) {
-//     //      yes -   -   yes -   reference known object with given id
-//     //      yes -   yes no  -   id is outdated (object was purged); re-assign new id and re-register known object to stream, add to dict/refs
-//         if (m_dictionary.count(sid)) {
-//             // reference known object with given id
-//             return mark(sid);
-//         }
-
-//     }
-
-//     void refer(const uint256& hash) {
-//         if (m_references.count(hash)) return refer(hash, m_references.at(hash));
-//     }
-// };
 
 } // namespace cq
 
