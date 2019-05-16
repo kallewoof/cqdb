@@ -94,6 +94,10 @@ protected:
     std::string cluster_path(id cluster);
     void open(bool readonly);
     void resume();
+    virtual void prepare_for_writing() {
+        // seek to end
+        m_file->seek(0, SEEK_END);
+    }
     serializer* open(const std::string& fname, bool readonly);
     serializer* open(id fref, bool readonly);
 
@@ -104,7 +108,8 @@ public:
 
     // struction
     db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024);
-    ~db();
+    virtual ~db();
+    void load();
 
     // registry
     id store(object* t);                    // writes object to disk and returns its absolute id
@@ -214,6 +219,13 @@ inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6)
  */
 template<typename T>
 class chronology : public db {
+protected:
+    void prepare_for_writing() override {
+        // we need to fetch all objects that we are meant to know about
+        // the only way to do this by default is to replay the file up to the end
+        while (iterate());
+    }
+
 public:
     long current_time;
     std::map<id, std::shared_ptr<T>> m_dictionary;
@@ -223,6 +235,8 @@ public:
     : current_time(0)
     , db(dbpath, prefix, cluster_size)
     {}
+
+    virtual bool iterate() =0;
 
     //////////////////////////////////////////////////////////////////////////////////////
     // Writing

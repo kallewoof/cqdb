@@ -140,8 +140,7 @@ void db::open(bool readonly) {
             // we are opening with the intent on writing, so we move to the end of the file automagically, but
             // read footer first
             m_footer = new footer(m_cluster, m_file);
-            // seek to end
-            m_file->seek(0, SEEK_END);
+            prepare_for_writing();
         }
     }
     m_readonly = readonly;
@@ -170,9 +169,11 @@ db::db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_si
     , m_footer(nullptr)
     , m_readonly(true)
     , m_file(nullptr)
-{
-    if (!mkdir(dbpath)) {
-        file regfile(dbpath + "/cq.registry", false);
+{}
+
+void db::load() {
+    if (!mkdir(m_dbpath)) {
+        file regfile(m_dbpath + "/cq.registry", false);
         m_reg.deserialize(&regfile);
         resume();
     }
