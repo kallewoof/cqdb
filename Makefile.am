@@ -66,3 +66,6 @@ endif
 %.pb.cc %.pb.h: %.proto
 	@test -f $(PROTOC)
 	$(AM_V_GEN) $(PROTOC) --cpp_out=$(@D) --proto_path=$(<D) $<
+
+uninstall-hook:
+	-rmdir ${cqdbincludedir}
