@@ -271,6 +271,7 @@ public:
                 pool.insert(ob);
                 ts[i] = ob.get();
             }
+            ++i;
         }
         refer(ts, i);
     }

@@ -1614,9 +1614,116 @@ TEST_CASE("chronology", "[chronology]") {
     //                 pool.insert(ob);
     //                 ts[i] = ob.get();
     //             }
+    //             ++i;
     //         }
     //         refer(ts, i);
     //     }
+
+    SECTION("single event with 2 unknown subjects (push hash set)") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        std::set<uint256> set{ob->m_hash, ob2->m_hash};
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, set);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(chron->current_time == 1557974775);
+            // known is irrelevant
+            std::set<uint256> set2;
+            chron->pop_reference_hashes(set2);
+            REQUIRE(set2.size() == 2);
+            REQUIRE(set2 == set);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("single event with 2 known subjects (push hash set)") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        std::set<uint256> set{ob->m_hash, ob2->m_hash};
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, ob, false); // write full ref to make ob known
+            chron->push_event(1557974776, cmd_add, ob2, false); // write full ref to make ob known
+            chron->push_event(1557974777, cmd_del, set);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(!known);
+            REQUIRE(chron->current_time == 1557974775);
+            std::shared_ptr<test_object> obx = chron->pop_object();
+            REQUIRE(*obx == *ob);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(!known);
+            REQUIRE(chron->current_time == 1557974776);
+            obx = chron->pop_object();
+            REQUIRE(*obx == *ob2);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            // known is irrelevant
+            REQUIRE(chron->current_time == 1557974777);
+            std::set<uint256> set2;
+            chron->pop_reference_hashes(set2);
+            REQUIRE(set2.size() == 2);
+            REQUIRE(set2 == set);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
+
+    SECTION("single event with 1 known 1 unknown subject (push hash set)") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        std::set<uint256> set{ob->m_hash, ob2->m_hash};
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_add, ob, false); // write full ref to make ob known
+            chron->push_event(1557974776, cmd_del, set);
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            uint8_t cmd;
+            bool known;
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_add == cmd);
+            REQUIRE(!known);
+            REQUIRE(chron->current_time == 1557974775);
+            std::shared_ptr<test_object> obx;
+            obx = chron->pop_object();
+            REQUIRE(*obx == *ob);
+            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(cmd_del == cmd);
+            // known is irrelevant
+            REQUIRE(chron->current_time == 1557974776);
+            std::set<uint256> set2;
+            chron->pop_reference_hashes(set2);
+            REQUIRE(set2.size() == 2);
+            REQUIRE(set2 == set);
+            REQUIRE(false == chron->pop_event(cmd, known));
+        }
+    }
 
     //     virtual void cluster_changed(id old_cluster_id, id new_cluster_id) override {
     //         m_dictionary.clear();
