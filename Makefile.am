@@ -6,41 +6,34 @@ ACLOCAL_AMFLAGS = -I build-aux/m4
 AM_LDFLAGS = $(LIBTOOL_LDFLAGS) -pthread
 EXTRA_LIBRARIES =
 
-CQDB_INCLUDES=-I ./include -I utils/bitcoin
+CQDB_INCLUDES=-I ./include
 
-LIBBITCOIN=libbitcoin.a
-LIBCQDB=libcqdb.a
+TESTCQDB=test-cqdb
 
 EXTRA_LIBRARIES += \
-	$(LIBBITCOIN) \
 	$(LIBCQDB)
 
-bin_PROGRAMS = test-cqdb
-noinst_PROGRAMS =
+TESTS = $(TESTCQDB)
+check_PROGRAMS = $(TESTCQDB)
+lib_LTLIBRARIES = libcqdb.la
 
 .PHONY: FORCE check-symbols check-security
-# bitcoin core #
-BITCOIN_CORE_H = \
-		utils/bitcoin/uint256.h \
-		utils/bitcoin/utilstrencodings.h
-
-# bitcoin: shared between all the tools
-libbitcoin_a_CPPFLAGS = $(AM_CPPFLAGS) $(CQDB_INCLUDES)
-libbitcoin_a_CXXFLAGS = $(AM_CXXFLAGS)
-libbitcoin_a_SOURCES = \
-		utils/bitcoin/uint256.cpp \
-		utils/bitcoin/utilstrencodings.cpp \
-    $(BITCOIN_CORE_H)
 
 # CQDB #
 
-libcqdb_a_SOURCES = \
+libcqdb_la_SOURCES = \
 	src/cq.cpp \
 	src/io.cpp \
+	src/uint256.cpp \
+	src/utilstrencodings.cpp \
 	include/cqdb/cq.h \
-	include/cqdb/io.h
-libcqdb_a_CPPFLAGS = $(AM_CPPFLAGS) $(CQDB_INCLUDES)
-libcqdb_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+	include/cqdb/io.h \
+	include/uint256.h \
+	include/utilstrencodings.h
+libcqdb_la_CPPFLAGS = $(AM_CPPFLAGS) $(CQDB_INCLUDES)
+libcqdb_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+cqdbincludedir = $(includedir)/cqdb
+cqdbinclude_HEADERS = include/cqdb/cq.h include/cqdb/io.h include/cqdb/uint256.h include/cqdb/utilstrencodings.h
 
 # test-cqdb binary #
 test_cqdb_SOURCES = \
@@ -53,11 +46,10 @@ test_cqdb_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_cqdb_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_AP_LDFLAGS)
 
 test_cqdb_LDADD = \
-	$(LIBCQDB) \
-	$(LIBBITCOIN)
+	libcqdb.la
 
 clean-local:
-	-rm -f config.h $(LIBBITCOIN)
+	-rm -f config.h
 
 .rc.o:
 	@test -f $(WINDRES)

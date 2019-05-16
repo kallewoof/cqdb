@@ -3,9 +3,9 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "uint256.h"
+#include <cqdb/uint256.h>
 
-#include "utilstrencodings.h"
+#include <cqdb/utilstrencodings.h>
 
 #include <stdio.h>
 #include <string.h>

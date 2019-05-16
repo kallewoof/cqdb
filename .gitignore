@@ -45,3 +45,5 @@ autom4te.cache
 libtool
 test-cqdb
 .vscode
+test-cqdb.*
+test-suite.log

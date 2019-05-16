@@ -11,7 +11,7 @@
 
 #include <cqdb/io.h>
 
-#include <utils/bitcoin/uint256.h>
+#include <cqdb/uint256.h>
 
 namespace cq {
 
