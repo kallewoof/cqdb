@@ -4,18 +4,7 @@
 
 #include <cqdb/io.h>
 
-static inline cq::conditional* get_varint(uint8_t b, cq::id value) {
-    switch (b) {
-        case 1: return new cq::cond_varint<1>(value);
-        case 2: return new cq::cond_varint<2>(value);
-        case 3: return new cq::cond_varint<3>(value);
-        case 4: return new cq::cond_varint<4>(value);
-        case 5: return new cq::cond_varint<5>(value);
-        case 6: return new cq::cond_varint<6>(value);
-        case 7: return new cq::cond_varint<7>(value);
-        default: throw std::runtime_error("invalid cond_varint bits");
-    }
-}
+#include "helpers.h"
 
 TEST_CASE("Basic I/O", "[basic-io]") {
     SECTION("mkrmdir") {
@@ -185,6 +174,18 @@ TEST_CASE("Streams", "[streams") {
         stream.read(&byte, 1);
         REQUIRE(byte == 1);
         REQUIRE(stream.eof());
+    }
+    SECTION("Vectors", "[vectors]") {
+        std::vector<uint8_t> x{1,2,3};
+        cq::chv_stream stream;
+        auto pos = stream.tell();
+        stream << x;
+        auto bytes = stream.tell() - pos;
+        REQUIRE(bytes == 4);
+        stream.seek(0, SEEK_SET);
+        std::vector<uint8_t> y;
+        stream >> y;
+        REQUIRE(x == y);
     }
 }
 

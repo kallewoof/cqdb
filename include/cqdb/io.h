@@ -39,8 +39,10 @@ public:
     inline size_t write(char* data, size_t len) { return write((const uint8_t*)data, len); }
     inline size_t read(char* data, size_t len) { return read((uint8_t*)data, len); }
 
-    template<typename T> serializer& operator<<(const T& obj) { if (sizeof(T) != write((const uint8_t*)&obj, sizeof(obj))) throw fs_error("failed serialization"); return *this; }
-    template<typename T> serializer& operator>>(T& obj) { if (sizeof(T) != read((uint8_t*)&obj, sizeof(obj))) throw fs_error("failed deserialization"); return *this; }
+    template<typename T> serializer& operator<<(const std::vector<T>& vec);
+    template<typename T> serializer& operator>>(std::vector<T>& vec);
+    template<typename T> serializer& operator<<(const T& obj) { static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be serialized as is; call .serialize()"); if (sizeof(T) != write((const uint8_t*)&obj, sizeof(obj))) throw fs_error("failed serialization"); return *this; }
+    template<typename T> serializer& operator>>(T& obj) { static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be deserialized as is; call .deserialize()"); if (sizeof(T) != read((uint8_t*)&obj, sizeof(obj))) throw fs_error("failed deserialization"); return *this; }
 
     virtual std::string to_string() const { return "?"; }
 };
@@ -76,6 +78,18 @@ struct varint : public serializable {
     prepare_for_serialization();
     static inline id load(serializer* s) { varint v(s); return v.m_value; }
 };
+
+template<typename T> serializer& serializer::operator<<(const std::vector<T>& vec) {
+    varint(vec.size()).serialize(this);
+    for (const T& v : vec) operator<<(v);
+    return *this;
+}
+
+template<typename T> serializer& serializer::operator>>(std::vector<T>& vec) {
+    vec.resize(varint::load(this));
+    for (size_t i = 0; i < vec.size(); ++i) operator>>(vec[i]);
+    return *this;
+}
 
 struct conditional : public varint {
     using varint::varint;

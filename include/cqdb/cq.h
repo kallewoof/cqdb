@@ -239,6 +239,7 @@ public:
     //
 
     void push_event(long timestamp, uint8_t cmd, std::shared_ptr<T> subject = nullptr, bool refer_only = true) {
+        assert(timestamp >= current_time);
         bool known = subject.get() && m_references.count(subject->m_hash);
         uint8_t header_byte = cmd | (known << 5) | time_rel_bits(timestamp - current_time);
         *m_file << header_byte;

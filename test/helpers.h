@@ -1,6 +1,19 @@
 #include <memory>
 #include <cqdb/cq.h>
 
+static inline cq::conditional* get_varint(uint8_t b, cq::id value) {
+    switch (b) {
+        case 1: return new cq::cond_varint<1>(value);
+        case 2: return new cq::cond_varint<2>(value);
+        case 3: return new cq::cond_varint<3>(value);
+        case 4: return new cq::cond_varint<4>(value);
+        case 5: return new cq::cond_varint<5>(value);
+        case 6: return new cq::cond_varint<6>(value);
+        case 7: return new cq::cond_varint<7>(value);
+        default: throw std::runtime_error("invalid cond_varint bits");
+    }
+}
+
 struct test_object : public cq::object {
     using cq::object::object;
     void serialize(cq::serializer* stream) const override {

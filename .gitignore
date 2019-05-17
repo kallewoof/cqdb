@@ -47,3 +47,4 @@ test-cqdb
 .vscode
 test-cqdb.*
 test-suite.log
+*~

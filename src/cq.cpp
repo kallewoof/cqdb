@@ -307,7 +307,7 @@ void db::derefer(std::set<id>& known_out,  std::set<uint256>& unknown_out) {
     // read unknown refs
     for (id i = 0; i < unknown; ++i) {
         uint256 h;
-        *m_file >> h;
+        h.Unserialize(*m_file);
         unknown_out.insert(h);
     }
 }
