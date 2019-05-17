@@ -39,9 +39,11 @@ cqdbinclude_HEADERS = include/cqdb/cq.h include/cqdb/io.h include/cqdb/uint256.h
 # test-cqdb binary #
 test_cqdb_SOURCES = \
 	test/catch.hpp \
-	test/test-io.cpp \
-	test/test-cq.cpp \
-	test/test-cqdb.cpp
+	test/helpers.h \
+	test/test-chronology.cpp \
+	test/test-cqdb.cpp \
+	test/test-db.cpp \
+	test/test-io.cpp
 test_cqdb_CPPFLAGS = $(AM_CPPFLAGS) $(CQDB_INCLUDES)
 test_cqdb_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_cqdb_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_AP_LDFLAGS)
