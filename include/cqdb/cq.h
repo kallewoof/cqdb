@@ -155,15 +155,11 @@ public:
     void flush();
 };
 
-#define time_rel_value(cmd) (((cmd) >> 6) & 0x3)
+inline uint8_t time_rel_value(uint8_t cmd) { return cmd >> 6; }
 inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6); }
 
 #define _read_time(t, current_time, timerel) \
-    if (timerel < 3) { \
-        t = current_time + timerel; \
-    } else { \
-        t = current_time + varint::load(m_file); \
-    }
+    t = current_time + timerel + (timerel > 2 ? varint::load(m_file) : 0)
 
 #define read_cmd_time(u8, cmd, known, timerel, time) do { \
         u8 = m_file->get_uint8(); \
@@ -175,7 +171,7 @@ inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6)
 
 #define _write_time(rel, current_time, write_time) do { \
         if (time_rel_value(rel) > 2) { \
-            uint64_t tfull = uint64_t(write_time - current_time); \
+            uint64_t tfull = uint64_t(write_time - time_rel_value(rel) - current_time); \
             varint(tfull).serialize(m_file); \
             current_time = write_time; \
         } else { \

@@ -9,35 +9,115 @@ TEST_CASE("Time relative", "[timerel]") {
     // #define time_rel_value(cmd) (((cmd) >> 6) & 0x3)
     // inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6); }
 
-    SECTION("time_rel macros") {
-
+    SECTION("time_rel helpers") {
+        for (int i = 0; i < 256; ++i) {
+            uint8_t u8 = (uint8_t)i;
+            // first 6 bits are the command + known flag
+            uint8_t cmd = u8 & 0x3f;
+            // last 2 bits are the time rel value
+            uint8_t tv = u8 >> 6;
+            uint8_t u8dup = cmd | cq::time_rel_bits(tv);
+            REQUIRE(tv == cq::time_rel_value(u8));
+            REQUIRE(u8dup == u8);
+        }
     }
 
     // #define _read_time(t, current_time, timerel) \
-    //     if (timerel < 3) { \
-    //         t = current_time + timerel; \
-    //     } else { \
-    //         t = current_time + varint::load(m_file); \
-    //     }
+    //     t = current_time + timerel + (timerel > 2 ? varint::load(m_file) : 0)
+
+    SECTION("_read_time macro") {
+        using cq::varint;
+        cq::chv_stream stream;
+        for (long relative_time = 3; relative_time < 128 /* 2 byte varint */; ++relative_time) {
+            varint(relative_time - 3).serialize(&stream);
+        }
+        long current_time = 0;
+        long expected_time = 0;
+        auto m_file = &stream;
+        stream.seek(0, SEEK_SET);
+        for (long relative_time = 0; relative_time < 128; ++relative_time) {
+            uint8_t timerel = relative_time > 3 ? 3 : relative_time;
+            expected_time += relative_time;
+            _read_time(current_time, current_time, timerel);
+        }
+        REQUIRE(expected_time == current_time);
+    }
 
     // #define read_cmd_time(u8, cmd, known, timerel, time) do { \
     //         u8 = m_file->get_uint8(); \
-    //         cmd = (u8 & 0x0f); \
+    //         cmd = (u8 & 0x1f); /* 0b0001 1111 */ \
     //         known = 0 != (u8 & 0x20); \
     //         timerel = time_rel_value(u8); \
     //         _read_time(time, time, timerel); \
     //     } while(0)
 
+    SECTION("read_cmd_time macro") {
+        using cq::varint;
+        using cq::time_rel_value;
+        cq::chv_stream stream;
+        uint8_t u8;
+        uint8_t cmd;
+        bool known;
+        uint8_t timerel;
+        long current_time = 0;
+        long expected_time = 0;
+        auto m_file = &stream;
+        for (long relative_time = 0; relative_time < 5; ++relative_time) {
+            uint8_t timerelx = relative_time > 2 ? 3 : relative_time;
+            varint* rtv = relative_time > 2 ? new varint(relative_time - 3) : nullptr;
+            for (uint8_t cmd8 = 0; cmd8 <= 0x1f; ++cmd8) {
+                for (uint8_t known8 = 0; known8 < 2; ++known8) {
+                    expected_time += relative_time;
+                    uint8_t u8x = cmd8 | (known8 << 5) | cq::time_rel_bits(relative_time);
+                    stream << u8x;
+                    if (rtv) rtv->serialize(&stream);
+                    stream.seek(0, SEEK_SET);
+                    read_cmd_time(u8, cmd, known, timerel, current_time);
+                    REQUIRE(u8 == u8x);
+                    REQUIRE(cmd == cmd8);
+                    REQUIRE(known == known8);
+                    REQUIRE(timerel == timerelx);
+                    REQUIRE(current_time == expected_time);
+                    stream.clear();
+                }
+            }
+            if (rtv) delete rtv;
+        }
+    }
+
     // #define _write_time(rel, current_time, write_time) do { \
     //         if (time_rel_value(rel) > 2) { \
-    //             uint64_t tfull = uint64_t(write_time - current_time); \
+    //             uint64_t tfull = uint64_t(write_time - time_rel_value(rel) - current_time); \
     //             varint(tfull).serialize(m_file); \
     //             current_time = write_time; \
     //         } else { \
     //             current_time += time_rel_value(rel);\
     //         }\
-    //         /*sync();*/\
     //     } while (0)
+
+    SECTION("_write_time macro") {
+        using cq::varint;
+        using cq::time_rel_value;
+        long current_time = 0;
+        long running_time = 0;
+        long expected_time = 0;
+        cq::chv_stream stream;
+        auto m_file = &stream;
+        for (long relative_time = 0; relative_time < 129; ++relative_time) {
+            running_time += relative_time;
+            uint8_t u8 = cq::time_rel_bits(relative_time);
+            _write_time(u8, current_time, running_time);
+        }
+        current_time = 0;
+        stream.seek(0, SEEK_SET);
+        for (long relative_time = 0; relative_time < 129; ++relative_time) {
+            expected_time += relative_time;
+            uint8_t timerel = relative_time < 3 ? relative_time : 3;
+            _read_time(current_time, current_time, timerel);
+            REQUIRE(current_time == expected_time);
+        }
+        REQUIRE(current_time == running_time);
+    }
 }
 
 TEST_CASE("chronology", "[chronology]") {

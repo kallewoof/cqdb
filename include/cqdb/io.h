@@ -181,6 +181,7 @@ public:
     size_t read(uint8_t* data, size_t len) override;
     void seek(long offset, int whence) override;
     long tell() override;
+    void clear() { m_chv.clear(); m_tell = 0; }
     std::string to_string() const override {
         char rv[(m_chv.size() << 1) + 1];
         char* rvp = rv;
