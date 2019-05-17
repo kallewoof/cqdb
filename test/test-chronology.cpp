@@ -103,14 +103,22 @@ TEST_CASE("Time relative", "[timerel]") {
         long expected_time = 0;
         cq::chv_stream stream;
         auto m_file = &stream;
-        for (long relative_time = 0; relative_time < 129; ++relative_time) {
+        for (long relative_time = 0; relative_time < 132; ++relative_time) {
+            size_t need_bytes = 0;
+            if (relative_time > 2) {
+                varint v(relative_time - 3);
+                need_bytes = cq::sizer(&v).m_len;
+            }
             running_time += relative_time;
             uint8_t u8 = cq::time_rel_bits(relative_time);
+            auto start_pos = stream.tell();
             _write_time(u8, current_time, running_time);
+            auto bytes = stream.tell() - start_pos;
+            REQUIRE(bytes == need_bytes);
         }
         current_time = 0;
         stream.seek(0, SEEK_SET);
-        for (long relative_time = 0; relative_time < 129; ++relative_time) {
+        for (long relative_time = 0; relative_time < 132; ++relative_time) {
             expected_time += relative_time;
             uint8_t timerel = relative_time < 3 ? relative_time : 3;
             _read_time(current_time, current_time, timerel);
