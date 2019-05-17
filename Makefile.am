@@ -10,9 +10,6 @@ CQDB_INCLUDES=-I ./include
 
 TESTCQDB=test-cqdb
 
-EXTRA_LIBRARIES += \
-	$(LIBCQDB)
-
 TESTS = $(TESTCQDB)
 check_PROGRAMS = $(TESTCQDB)
 noinst_PROGRAMS = $(TESTCQDB)
