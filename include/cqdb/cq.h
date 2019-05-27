@@ -197,12 +197,12 @@ inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6)
 #define _read_time(t, current_time, timerel) \
     t = current_time + timerel + (timerel > 2 ? varint::load(m_file) : 0)
 
-#define read_cmd_time(u8, cmd, known, timerel, time) do { \
+#define read_cmd_time(u8, cmd, known, timerel, time, current_time) do { \
         u8 = m_file->get_uint8(); \
         cmd = (u8 & 0x1f); /* 0b0001 1111 */ \
         known = 0 != (u8 & 0x20); \
         timerel = time_rel_value(u8); \
-        _read_time(time, time, timerel); \
+        _read_time(time, current_time, timerel); \
     } while(0)
 
 #define _write_time(rel, current_time, write_time) do { \
@@ -259,12 +259,12 @@ protected:
     }
 
 public:
-    long current_time;
+    long m_current_time;
     std::map<id, std::shared_ptr<T>> m_dictionary;
     std::map<uint256, id> m_references;
 
     chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024)
-    : current_time(0)
+    : m_current_time(0)
     , db(dbpath, prefix, cluster_size)
     {}
 
@@ -273,11 +273,12 @@ public:
     //
 
     void push_event(long timestamp, uint8_t cmd, std::shared_ptr<T> subject = nullptr, bool refer_only = true) {
-        assert(timestamp >= current_time);
+        if (!m_file) throw db_error("event pushed with null sector (begin sector(s) first)");
+        assert(timestamp >= m_current_time);
         bool known = subject.get() && m_references.count(subject->m_hash);
-        uint8_t header_byte = cmd | (known << 5) | time_rel_bits(timestamp - current_time);
+        uint8_t header_byte = cmd | (known << 5) | time_rel_bits(timestamp - m_current_time);
         *m_file << header_byte;
-        _write_time(header_byte, current_time, timestamp); // this updates current_time
+        _write_time(header_byte, m_current_time, timestamp); // this updates m_current_time
         if (subject.get()) {
             if (known) {
                 refer(subject.get());
@@ -325,7 +326,7 @@ public:
     // Reading
     //
 
-    bool pop_event(uint8_t& cmd, bool& known) {
+    bool _pop_next(uint8_t& cmd, bool& known, long& time, bool peeking = false) {
         uint8_t u8, timerel;
         while (m_file->readonly() && m_file->eof()) {
             auto next_cluster = m_reg.cluster_next(m_reg.m_current_cluster);
@@ -333,14 +334,26 @@ public:
                 m_ic.open(next_cluster, true);
             }
         }
+        auto pos = m_ic.m_file->tell();
         try {
-            read_cmd_time(u8, cmd, known, timerel, current_time);
+            read_cmd_time(u8, cmd, known, timerel, time, m_current_time);
+            if (peeking) m_ic.m_file->seek(pos, SEEK_SET);
         } catch (io_error) {
             return false;
         } catch (std::ios_base::failure& f) {
             return false;
         }
         return true;
+    }
+
+    bool peek_time(long& time) {
+        uint8_t cmd;
+        bool known;
+        return _pop_next(cmd, known, time, true);
+    }
+
+    bool pop_event(uint8_t& cmd, bool& known) {
+        return _pop_next(cmd, known, m_current_time);
     }
 
     std::shared_ptr<T> pop_object() {

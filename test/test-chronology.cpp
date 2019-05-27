@@ -22,8 +22,8 @@ TEST_CASE("Time relative", "[timerel]") {
         }
     }
 
-    // #define _read_time(t, current_time, timerel) \
-    //     t = current_time + timerel + (timerel > 2 ? varint::load(m_file) : 0)
+    // #define _read_time(t, m_current_time, timerel) \
+    //     t = m_current_time + timerel + (timerel > 2 ? varint::load(m_file) : 0)
 
     SECTION("_read_time macro") {
         using cq::varint;
@@ -31,24 +31,24 @@ TEST_CASE("Time relative", "[timerel]") {
         for (long relative_time = 3; relative_time < 128 /* 2 byte varint */; ++relative_time) {
             varint(relative_time - 3).serialize(&stream);
         }
-        long current_time = 0;
+        long m_current_time = 0;
         long expected_time = 0;
         auto m_file = &stream;
         stream.seek(0, SEEK_SET);
         for (long relative_time = 0; relative_time < 128; ++relative_time) {
             uint8_t timerel = relative_time > 3 ? 3 : relative_time;
             expected_time += relative_time;
-            _read_time(current_time, current_time, timerel);
+            _read_time(m_current_time, m_current_time, timerel);
         }
-        REQUIRE(expected_time == current_time);
+        REQUIRE(expected_time == m_current_time);
     }
 
-    // #define read_cmd_time(u8, cmd, known, timerel, time) do { \
+    // #define read_cmd_time(u8, cmd, known, timerel, time, current_time) do { \
     //         u8 = m_file->get_uint8(); \
     //         cmd = (u8 & 0x1f); /* 0b0001 1111 */ \
     //         known = 0 != (u8 & 0x20); \
     //         timerel = time_rel_value(u8); \
-    //         _read_time(time, time, timerel); \
+    //         _read_time(time, current_time, timerel); \
     //     } while(0)
 
     SECTION("read_cmd_time macro") {
@@ -59,7 +59,7 @@ TEST_CASE("Time relative", "[timerel]") {
         uint8_t cmd;
         bool known;
         uint8_t timerel;
-        long current_time = 0;
+        long m_current_time = 0;
         long expected_time = 0;
         auto m_file = &stream;
         for (long relative_time = 0; relative_time < 5; ++relative_time) {
@@ -72,12 +72,12 @@ TEST_CASE("Time relative", "[timerel]") {
                     stream << u8x;
                     if (rtv) rtv->serialize(&stream);
                     stream.seek(0, SEEK_SET);
-                    read_cmd_time(u8, cmd, known, timerel, current_time);
+                    read_cmd_time(u8, cmd, known, timerel, m_current_time, m_current_time);
                     REQUIRE(u8 == u8x);
                     REQUIRE(cmd == cmd8);
                     REQUIRE(known == known8);
                     REQUIRE(timerel == timerelx);
-                    REQUIRE(current_time == expected_time);
+                    REQUIRE(m_current_time == expected_time);
                     stream.clear();
                 }
             }
@@ -85,20 +85,20 @@ TEST_CASE("Time relative", "[timerel]") {
         }
     }
 
-    // #define _write_time(rel, current_time, write_time) do { \
+    // #define _write_time(rel, m_current_time, write_time) do { \
     //         if (time_rel_value(rel) > 2) { \
-    //             uint64_t tfull = uint64_t(write_time - time_rel_value(rel) - current_time); \
+    //             uint64_t tfull = uint64_t(write_time - time_rel_value(rel) - m_current_time); \
     //             varint(tfull).serialize(m_file); \
-    //             current_time = write_time; \
+    //             m_current_time = write_time; \
     //         } else { \
-    //             current_time += time_rel_value(rel);\
+    //             m_current_time += time_rel_value(rel);\
     //         }\
     //     } while (0)
 
     SECTION("_write_time macro") {
         using cq::varint;
         using cq::time_rel_value;
-        long current_time = 0;
+        long m_current_time = 0;
         long running_time = 0;
         long expected_time = 0;
         cq::chv_stream stream;
@@ -112,19 +112,19 @@ TEST_CASE("Time relative", "[timerel]") {
             running_time += relative_time;
             uint8_t u8 = cq::time_rel_bits(relative_time);
             auto start_pos = stream.tell();
-            _write_time(u8, current_time, running_time);
+            _write_time(u8, m_current_time, running_time);
             auto bytes = stream.tell() - start_pos;
             REQUIRE(bytes == need_bytes);
         }
-        current_time = 0;
+        m_current_time = 0;
         stream.seek(0, SEEK_SET);
         for (long relative_time = 0; relative_time < 132; ++relative_time) {
             expected_time += relative_time;
             uint8_t timerel = relative_time < 3 ? relative_time : 3;
-            _read_time(current_time, current_time, timerel);
-            REQUIRE(current_time == expected_time);
+            _read_time(m_current_time, m_current_time, timerel);
+            REQUIRE(m_current_time == expected_time);
         }
-        REQUIRE(current_time == running_time);
+        REQUIRE(m_current_time == running_time);
     }
 }
 
@@ -134,12 +134,12 @@ TEST_CASE("chronology", "[chronology]") {
     // template<typename T>
     // class chronology : public db {
     // public:
-    //     long current_time;
+    //     long m_current_time;
     //     std::map<id, std::shared_ptr<T>> m_dictionary;
     //     std::map<uint256, id> m_references;
 
     //     chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024)
-    //     : current_time(0)
+    //     : m_current_time(0)
     //     , db(dbpath, prefix, cluster_size)
     //     {}
 
@@ -157,9 +157,9 @@ TEST_CASE("chronology", "[chronology]") {
 
     //     void push_event(long timestamp, uint8_t cmd, std::shared_ptr<T> subject = nullptr, bool refer_only = true) {
     //         bool known = subject.get() && m_references.count(subject->m_hash);
-    //         uint8_t header_byte = cmd | (known << 5) | time_rel_bits(timestamp - current_time);
+    //         uint8_t header_byte = cmd | (known << 5) | time_rel_bits(timestamp - m_current_time);
     //         *m_file << header_byte;
-    //         _write_time(header_byte, current_time, timestamp); // this updates current_time
+    //         _write_time(header_byte, m_current_time, timestamp); // this updates m_current_time
     //         if (subject.get()) {
     //             if (known) {
     //                 refer(subject.get());
@@ -176,7 +176,7 @@ TEST_CASE("chronology", "[chronology]") {
     //     bool pop_event(uint8_t& cmd, bool& known) {
     //         uint8_t u8, timerel;
     //         try {
-    //             read_cmd_time(u8, cmd, known, timerel, current_time);
+    //             read_cmd_time(u8, cmd, known, timerel, m_current_time);
     //         } catch (std::ios_base::failure& f) {
     //             return false;
     //         }
@@ -187,6 +187,7 @@ TEST_CASE("chronology", "[chronology]") {
     //     id pop_reference()                                         { return derefer(); }
     //     uint256& pop_reference(uint256& hash)                      { return derefer(hash); }
 
+    long ptime;
     SECTION("pushing one no-subject event") {
         long pos;
         {
@@ -198,14 +199,21 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            auto pos1 = chron->m_ic.m_file->tell();
+            auto ctime = chron->m_current_time;
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(pos1 == chron->m_ic.m_file->tell());
+            REQUIRE(ctime == chron->m_current_time);
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_nop == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             // known is irrelevant here
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -221,17 +229,22 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_nop == cmd);
-            REQUIRE(chron->current_time == 1557974775);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->m_current_time == 1557974775);
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_nop == cmd);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             // known is irrelevant here
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -249,16 +262,19 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_add == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             // we did not turn off the 'refer only' flag, so this is an unknown reference
             REQUIRE(chron->pop_reference(hash) == obhash);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -279,20 +295,25 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_add == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == obhash);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_add == cmd);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == obhash2);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -312,20 +333,25 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_add == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == obhash);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_del == cmd);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == obhash);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -350,30 +376,39 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_add == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == obhash);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_add == cmd);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == obhash2);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974777 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_del == cmd);
-            REQUIRE(chron->current_time == 1557974777);
+            REQUIRE(chron->m_current_time == 1557974777);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == obhash2);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974778 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_del == cmd);
-            REQUIRE(chron->current_time == 1557974778);
+            REQUIRE(chron->m_current_time == 1557974778);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == obhash);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -402,17 +437,20 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(chron->m_references.count(obhash) == 1);
             REQUIRE(chron->m_references.at(obhash) == obid);
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             std::shared_ptr<test_object> ob = chron->pop_object();
             REQUIRE(ob->m_hash == obhash);
             REQUIRE(ob->m_sid == obid);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -432,17 +470,20 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             std::shared_ptr<test_object> ob = chron->pop_object();
             REQUIRE(ob->m_hash == obhash);
             REQUIRE(ob->m_sid == obid);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -466,24 +507,29 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             std::shared_ptr<test_object> ob = chron->pop_object();
             REQUIRE(ob->m_hash == obhash);
             REQUIRE(ob->m_sid == obid);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             REQUIRE(!known);
             ob = chron->pop_object();
             REQUIRE(ob->m_hash == obhash2);
             REQUIRE(ob->m_sid == obid2);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -504,22 +550,27 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             std::shared_ptr<test_object> ob = chron->pop_object();
             REQUIRE(ob->m_hash == obhash);
             REQUIRE(ob->m_sid == obid);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_del == cmd);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             REQUIRE(known);
             REQUIRE(chron->pop_reference() == obid);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -539,35 +590,44 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
             std::shared_ptr<test_object> obx;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             obx = chron->pop_object();
             REQUIRE(obx->m_hash == ob->m_hash);
             REQUIRE(obx->m_sid == ob->m_sid);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             REQUIRE(!known);
             obx = chron->pop_object();
             REQUIRE(obx->m_hash == ob2->m_hash);
             REQUIRE(obx->m_sid == ob2->m_sid);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974777 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_del == cmd);
-            REQUIRE(chron->current_time == 1557974777);
+            REQUIRE(chron->m_current_time == 1557974777);
             REQUIRE(known);
             REQUIRE(chron->pop_reference() == ob->m_sid);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974778 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_del == cmd);
-            REQUIRE(chron->current_time == 1557974778);
+            REQUIRE(chron->m_current_time == 1557974778);
             REQUIRE(known);
             REQUIRE(chron->pop_reference() == ob2->m_sid);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -587,33 +647,42 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
             std::shared_ptr<test_object> obx;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             REQUIRE(!known);
             obx = chron->pop_object();
             REQUIRE(obx->m_hash == ob->m_hash);
             REQUIRE(obx->m_sid == ob->m_sid);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_add == cmd);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == ob2->m_hash);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974777 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_del == cmd);
-            REQUIRE(chron->current_time == 1557974777);
+            REQUIRE(chron->m_current_time == 1557974777);
             REQUIRE(known);
             REQUIRE(chron->pop_reference() == ob->m_sid);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974778 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_del == cmd);
-            REQUIRE(chron->current_time == 1557974778);
+            REQUIRE(chron->m_current_time == 1557974778);
             REQUIRE(!known);
             REQUIRE(chron->pop_reference(hash) == ob2->m_hash);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -646,12 +715,14 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_mass == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             // known is irrelevant
             std::set<cq::id> known_set;
             std::set<uint256> unknown_set;
@@ -660,7 +731,8 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(known_set.size() == 0);
             REQUIRE(unknown_set.size() == 2);
             REQUIRE(unknown_set == expected_us);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -679,26 +751,32 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
             REQUIRE(!known);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             std::shared_ptr<test_object> obx;
             obx = chron->pop_object();
             REQUIRE(*obx == *ob);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
             REQUIRE(!known);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             obx = chron->pop_object();
             REQUIRE(*obx == *ob2);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974777 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
-            REQUIRE(chron->current_time == 1557974777);
+            REQUIRE(chron->m_current_time == 1557974777);
             std::set<cq::id> known_set;
             std::set<uint256> unknown_set;
             chron->pop_references(known_set, unknown_set);
@@ -706,7 +784,8 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(known_set.size() == 2);
             REQUIRE(unknown_set.size() == 0);
             REQUIRE(known_set == expected_ks);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -724,19 +803,23 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
             REQUIRE(!known);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             std::shared_ptr<test_object> obx = chron->pop_object();
             REQUIRE(*obx == *ob);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             std::set<cq::id> known_set;
             std::set<uint256> unknown_set;
             chron->pop_references(known_set, unknown_set);
@@ -746,7 +829,8 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(unknown_set.size() == 1);
             REQUIRE(known_set == expected_ks);
             REQUIRE(unknown_set == expected_us);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -771,19 +855,22 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_mass == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             // known is irrelevant
             std::set<uint256> set;
             chron->pop_reference_hashes(set);
             std::set<uint256> expected{ob->m_hash, ob2->m_hash};
             REQUIRE(set.size() == 2);
             REQUIRE(set == expected);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -802,31 +889,38 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
             REQUIRE(!known);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             std::shared_ptr<test_object> obx = chron->pop_object();
             REQUIRE(*obx == *ob);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
             REQUIRE(!known);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             obx = chron->pop_object();
             REQUIRE(*obx == *ob2);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974777 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
-            REQUIRE(chron->current_time == 1557974777);
+            REQUIRE(chron->m_current_time == 1557974777);
             std::set<uint256> set;
             chron->pop_reference_hashes(set);
             std::set<uint256> expected{ob->m_hash, ob2->m_hash};
             REQUIRE(set.size() == 2);
             REQUIRE(set == expected);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -844,26 +938,31 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
             REQUIRE(!known);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             std::shared_ptr<test_object> obx;
             obx = chron->pop_object();
             REQUIRE(*obx == *ob);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             std::set<uint256> set;
             chron->pop_reference_hashes(set);
             std::set<uint256> expected{ob->m_hash, ob2->m_hash};
             REQUIRE(set.size() == 2);
             REQUIRE(set == expected);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -901,18 +1000,21 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_mass == cmd);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             // known is irrelevant
             std::set<uint256> set2;
             chron->pop_reference_hashes(set2);
             REQUIRE(set2.size() == 2);
             REQUIRE(set2 == set);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -932,30 +1034,37 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
             REQUIRE(!known);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             std::shared_ptr<test_object> obx = chron->pop_object();
             REQUIRE(*obx == *ob);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
             REQUIRE(!known);
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             obx = chron->pop_object();
             REQUIRE(*obx == *ob2);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974777 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
-            REQUIRE(chron->current_time == 1557974777);
+            REQUIRE(chron->m_current_time == 1557974777);
             std::set<uint256> set2;
             chron->pop_reference_hashes(set2);
             REQUIRE(set2.size() == 2);
             REQUIRE(set2 == set);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
@@ -974,25 +1083,30 @@ TEST_CASE("chronology", "[chronology]") {
         {
             auto chron = open_chronology();
             chron->m_file->seek(pos, SEEK_SET);
-            chron->current_time = 0;
+            chron->m_current_time = 0;
             uint8_t cmd;
             bool known;
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_reg == cmd);
             REQUIRE(!known);
-            REQUIRE(chron->current_time == 1557974775);
+            REQUIRE(chron->m_current_time == 1557974775);
             std::shared_ptr<test_object> obx;
             obx = chron->pop_object();
             REQUIRE(*obx == *ob);
-            REQUIRE(true == chron->pop_event(cmd, known));
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974776 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
-            REQUIRE(chron->current_time == 1557974776);
+            REQUIRE(chron->m_current_time == 1557974776);
             std::set<uint256> set2;
             chron->pop_reference_hashes(set2);
             REQUIRE(set2.size() == 2);
             REQUIRE(set2 == set);
-            REQUIRE(false == chron->pop_event(cmd, known));
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
         }
     }
 
