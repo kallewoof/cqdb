@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <cstdio>
 
+#include <cqdb/uint256.h>
+
 namespace cq {
 
 class fs_error : public std::runtime_error { public: explicit fs_error(const std::string& str) : std::runtime_error(str) {} };
@@ -32,9 +34,22 @@ template<typename T, typename Stream> void deserialize(Stream& stm, std::vector<
     template<typename Stream> void serialize(Stream& stm, T t) { stm.w(t); } \
     template<typename Stream> void deserialize(Stream& stm, T& t) { stm.r(t); }
 S(uint8_t); S(uint16_t); S(uint32_t); S(uint64_t); S(int8_t); S(int16_t); S(int32_t); S(int64_t);
+#undef S
+
+class serializer;
+
+class compressor {
+public:
+    virtual void compress(serializer* stm, const std::vector<uint256>& references) =0;
+    virtual void compress(serializer* stm, const uint256& reference) =0;
+    virtual void decompress(serializer* stm, std::vector<uint256>& references) =0;
+    virtual void decompress(serializer* stm, uint256& reference) =0;
+};
 
 class serializer {
 public:
+    compressor* m_compressor{nullptr};
+
     virtual ~serializer() {}
     virtual bool eof() =0;
     virtual bool empty() { return tell() == 0 && eof(); }

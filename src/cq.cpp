@@ -247,6 +247,12 @@ void db::fetch(object* t, id i) {
     t->m_sid = i;
 }
 
+void db::refer(id sid) {
+    assert(m_file);
+    assert(sid < m_file->tell());
+    varint(m_file->tell() - sid).serialize(m_file);
+}
+
 void db::refer(object* t) {
     assert(m_file);
     assert(t);

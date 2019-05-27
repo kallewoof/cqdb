@@ -736,6 +736,39 @@ TEST_CASE("chronology", "[chronology]") {
         }
     }
 
+    SECTION("single event with 2 unknown subjects, using compressor") {
+        long pos;
+        auto ob = test_object::make_random_unknown();
+        auto ob2 = test_object::make_random_unknown();
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(1);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_mass_compressed);
+            chron->m_file->m_compressor->compress(chron->m_file, std::vector<uint256>{ob->m_hash, ob2->m_hash});
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            chron->m_current_time = 0;
+            uint8_t cmd;
+            bool known;
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
+            REQUIRE(cmd_mass_compressed == cmd);
+            REQUIRE(chron->m_current_time == 1557974775);
+            // known is irrelevant
+            std::vector<uint256> vec;
+            chron->m_file->m_compressor->decompress(chron->m_file, vec);
+            std::vector<uint256> expected{ob->m_hash, ob2->m_hash};
+            REQUIRE(vec.size() == 2);
+            REQUIRE(vec == expected);
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
+        }
+    }
+
     SECTION("single event with 2 known subjects") {
         long pos;
         auto ob = test_object::make_random_unknown();

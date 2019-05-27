@@ -159,6 +159,7 @@ public:
     id store(object* t);                    // writes object to disk and returns its absolute id
     void load(object* t);                   // reads object from disk at current position
     void fetch(object* t, id i);            // fetches object with obid 'i' into *t from disk
+    void refer(id sid);                     // writes a reference to the object with the given sid
     void refer(object* t);                  // writes a reference to t to disk (known)
     id derefer();                           // reads a reference id from disk
     void refer(const uint256& hash);        // write a reference to an unknown object to disk
@@ -250,7 +251,7 @@ inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6)
  *      -'-;                    [cmd:GRADUATE]      -> pop_references(known, unknown);      known == [foo, bar]
  */
 template<typename T>
-class chronology : public db {
+class chronology : public db, public compressor {
 protected:
     void prepare_for_writing() override {
         // we need to fetch all objects that we are meant to know about
@@ -262,6 +263,74 @@ public:
     long m_current_time;
     std::map<id, std::shared_ptr<T>> m_dictionary;
     std::map<uint256, id> m_references;
+
+    #define S(b) bitfield[(b>>3)] |= (b & 7)    // set
+    #define U(b) bitfield[(b>>3)] &= !(b & 7)   // unset
+    #define G(b) (bitfield[(b>>3)] & (b & 7))   // get
+    virtual void compress(serializer* stm, const std::vector<uint256>& references) override {
+        assert(stm == m_file);
+        // generate known bit field
+        size_t refs = references.size();
+        size_t refbfb = (refs + 7) >> 3;
+        uint8_t bitfield[refbfb];
+        for (size_t i = 0; i < refs; ++i) if (m_references.count(references[i])) S(i); else U(i);
+        // length of vector as varint
+        *m_file << varint(refs);
+        // write bitfield
+        m_file->write(bitfield, refbfb);
+        for (size_t i = 0; i < refs; ++i) {
+            if (G(i)) {
+                *m_file << varint(m_file->tell() - m_references.at(references[i]));
+            } else {
+                references[i].Serialize(*m_file);
+            }
+        }
+    }
+
+    virtual void compress(serializer* stm, const uint256& reference) override {
+        assert(stm == m_file);
+        uint8_t known = m_references.count(reference);
+        *m_file << known;
+        if (known) {
+            *m_file << varint(m_file->tell() - m_references.at(reference));
+        } else {
+            reference.Serialize(*m_file);
+        }
+    }
+
+    virtual void decompress(serializer* stm, std::vector<uint256>& references) override {
+        assert(stm == m_file);
+        // length of vector as varint
+        size_t refs = varint::load(m_file);
+        // fetch known bit field
+        size_t refbfb = (refs + 7) >> 3;
+        uint8_t bitfield[refbfb];
+        m_file->read(bitfield, refbfb);
+        uint256 u;
+        for (size_t i = 0; i < refs; ++i) {
+            if (G(i)) {
+                references.push_back(m_dictionary.at(m_file->tell() - varint::load(m_file))->m_hash);
+            } else {
+                u.Unserialize(*stm);
+                references.push_back(u);
+            }
+        }
+    }
+
+    virtual void decompress(serializer* stm, uint256& reference) override {
+        assert(stm == m_file);
+        uint8_t known;
+        *m_file >> known;
+        if (known) {
+            reference = m_dictionary.at(m_file->tell() - varint::load(m_file))->m_hash;
+        } else {
+            reference.Unserialize(*m_file);
+        }
+    }
+    #undef S
+    #undef U
+    #undef G
+
     inline std::shared_ptr<T> tretch(const uint256& hash) { return m_references.count(hash) ? m_dictionary.at(m_references.at(hash)) : nullptr; }
 
     chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024)
@@ -382,6 +451,11 @@ public:
             if (!m_dictionary.count(i)) fprintf(stderr, "*** pop_reference_hashes(): unknown key %llu\n", i);
             mixed.insert(m_dictionary.at(i)->m_hash);
         }
+    }
+
+    virtual void registry_opened_cluster(id cluster, file* file) override {
+        db::registry_opened_cluster(cluster, file);
+        file->m_compressor = this;
     }
 
     virtual void registry_closing_cluster(id cluster) override {

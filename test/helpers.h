@@ -40,7 +40,8 @@ static const uint8_t cmd_reg = 0x00;    // reg <object>
 static const uint8_t cmd_add = 0x01;    // add <object>
 static const uint8_t cmd_del = 0x02;    // del <object|ref>
 static const uint8_t cmd_mass = 0x03;   // mass <objects>
-static const uint8_t cmd_nop = 0x04;    // nop
+static const uint8_t cmd_mass_compressed = 0x04; // mass_compressed <objects>
+static const uint8_t cmd_nop = 0x05;    // nop
 
 class test_chronology : public cq::chronology<test_object> {
 public:
@@ -51,6 +52,7 @@ public:
         bool known;
         uint256 hash;
         std::set<uint256> hash_set;
+        std::vector<uint256> hash_vec;
         if (!pop_event(cmd, known)) return false;
         switch (cmd) {
         case cmd_reg:
@@ -62,6 +64,9 @@ public:
             break;
         case cmd_mass:
             pop_reference_hashes(hash_set);
+            break;
+        case cmd_mass_compressed:
+            decompress(file, hash_vec);
             break;
         case cmd_nop: break;
         default:
