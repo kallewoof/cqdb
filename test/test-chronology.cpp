@@ -673,7 +673,7 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
-            chron->push_event(1557974776, cmd_reg, ob2, false); // write full ref to make ob known
+            chron->push_event(1557974776, cmd_reg, ob2, false); // write full ref to make ob2 known
             chron->push_event(1557974777, cmd_mass, std::set<std::shared_ptr<test_object>>{ob, ob2});
         }
         {
@@ -1009,7 +1009,7 @@ TEST_CASE("chronology", "[chronology]") {
         chron->begin_segment(1);
         chron->push_event(1557974775, cmd_reg, ob, false);
         REQUIRE(chron->m_dictionary.count(ob->m_sid) == 1);
-        chron->cluster_changed(1, 30000);
+        chron->registry_closing_cluster(1);
         REQUIRE(chron->m_dictionary.count(ob->m_sid) == 0);
     }
 }

@@ -21,32 +21,20 @@ class chronology_error : public std::runtime_error { public: explicit chronology
 #define OBREF(known, x) if (x.get()) { if (known) { refer(x.get()); } else { refer(x->m_hash); } }
 #define FERBO(known, u256) known ? m_dictionary.at(pop_reference())->m_hash : pop_reference(u256)
 
+constexpr id unknownid = 0x0;
+
 class object : public serializable {
 public:
     id m_sid;
     uint256 m_hash;
-    explicit object(const uint256& hash) : object(0, hash) {}
-    object(id sid = 0, const uint256& hash = uint256()) : m_sid(sid), m_hash(hash) {}
+    explicit object(const uint256& hash) : object(unknownid, hash) {}
+    object(id sid = unknownid, const uint256& hash = uint256()) : m_sid(sid), m_hash(hash) {}
     bool operator==(const object& other) const {
-        return m_sid == other.m_sid && m_hash == other.m_hash;
+        return m_hash == other.m_hash;
     }
 };
 
-class registry : serializable {
-private:
-    /**
-     * A list of existing clusters in the registry.
-     */
-    unordered_set m_clusters;
-public:
-    uint32_t m_cluster_size;
-    id m_tip;
-    prepare_for_serialization();
-    id open_cluster_for_segment(id segment);
-    registry(uint32_t cluster_size = 1024) : m_cluster_size(cluster_size), m_tip(0) {}
-    inline bool operator==(const registry& other) const { return m_cluster_size == other.m_cluster_size && m_clusters == other.m_clusters && m_tip == other.m_tip; }
-    inline const unordered_set& get_clusters() const { return m_clusters; }
-};
+static const uint8_t HEADER_VERSION = 1;
 
 class header : public serializable {
 private:
@@ -58,9 +46,13 @@ private:
     incmap m_segments;
 public:
     id m_cluster;
+
     header(uint8_t version, uint64_t timestamp, id cluster);
     header(id cluster, serializer* stream);
+    void reset(uint8_t version, uint64_t timestamp, id cluster);
+
     prepare_for_serialization();
+
     void mark_segment(id segment, id position);
     id get_segment_position(id segment) const;
     id get_first_segment() const;
@@ -79,37 +71,89 @@ public:
     }
 };
 
-typedef class header footer;
+class registry_delegate {
+public:
+    virtual void registry_closing_cluster(id cluster) =0;
+    virtual void registry_opened_cluster(id cluster, file* file) =0;
+    virtual bool registry_iterate(file* file) =0;
+};
 
-class db {
+class registry : public serializable, public indexed_cluster_delegate {
+private:
+    std::string m_dbpath;
+    std::string m_prefix;
+    /**
+     * A list of existing clusters in the registry.
+     */
+    unordered_set m_clusters;
+public:
+    uint32_t m_cluster_size;
+    id m_tip;
+    registry_delegate* m_delegate;
+    header m_forward_index;    // this is the worked-on header for the current (unfinished) cluster
+    header m_back_index;       // this is the readonly header referencing the previous cluster, if any
+    id m_current_cluster;
+
+    registry(registry_delegate* delegate, const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024)
+    :   m_dbpath(dbpath)
+    ,   m_prefix(prefix)
+    ,   m_cluster_size(cluster_size)
+    ,   m_tip(0)
+    ,   m_delegate(delegate)
+    ,   m_forward_index(HEADER_VERSION, 0, nullid)
+    ,   m_back_index(HEADER_VERSION, 0, nullid)
+    ,   m_current_cluster(nullid)
+    {}
+
+    prepare_for_serialization();
+
+    // cluster delegation
+    virtual id cluster_next(id cluster) override;
+    virtual id cluster_last(bool open_for_writing) override;
+    virtual std::string cluster_path(id cluster) override;
+    virtual void cluster_will_close(id cluster) override;
+    virtual void cluster_opened(id cluster, file* file) override;
+    virtual void cluster_write_forward_index(id cluster, file* file) override;
+    virtual void cluster_read_forward_index(id cluster, file* file) override;
+    virtual void cluster_clear_forward_index(id cluster) override;
+    virtual void cluster_read_back_index(id cluster, file* file) override;
+    virtual void cluster_clear_and_write_back_index(id cluster, file* file) override;
+    virtual bool cluster_iterate(id cluster, file* file) override { return m_delegate->registry_iterate(file); }
+
+    id prepare_cluster_for_segment(id segment);
+    inline bool operator==(const registry& other) const { return m_cluster_size == other.m_cluster_size && m_clusters == other.m_clusters && m_tip == other.m_tip; }
+    inline const unordered_set& get_clusters() const { return m_clusters; }
+};
+
+class db : public registry_delegate {
 protected:
     const std::string m_dbpath;
     const std::string m_prefix;
-    id m_cluster;
     registry m_reg;
-    header* m_header; // this is the worked-on header for the current (unfinished) cluster
-    footer* m_footer; // this is the readonly footer referencing the previous cluster, if any
-    bool m_readonly;
 
-    std::string cluster_path(id cluster);
-    void open(bool readonly);
+    void open(id cluster, bool readonly);
     void resume();
     virtual void prepare_for_writing() {
         // seek to end
-        m_file->seek(0, SEEK_END);
+        m_ic.resume_writing(false);
+        // m_file->seek(0, SEEK_END);
     }
-    serializer* open(const std::string& fname, bool readonly);
-    serializer* open(id fref, bool readonly);
 
     void close();
 
 public:
-    serializer* m_file;
+    file* m_file;
+    indexed_cluster m_ic;
 
     // struction
     db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024);
     virtual ~db();
     void load();
+
+    // registry delegate
+    virtual void registry_closing_cluster(id cluster) override;
+    virtual void registry_opened_cluster(id cluster, file* file) override;
+    virtual bool registry_iterate(file* file) override { file->seek(0, SEEK_END); return false; }
 
     // registry
     id store(object* t);                    // writes object to disk and returns its absolute id
@@ -125,10 +169,10 @@ public:
                , std::set<uint256>& unknown);
 
     inline const registry& get_registry() const { return m_reg; }
-    inline const id& get_cluster() const { return m_cluster; }
-    inline const header* get_header() const { return m_header; }
-    inline const footer* get_footer() const { return m_footer; }
-    inline std::string stell() const { char v[256]; sprintf(v, "%lld:%ld", m_cluster, m_file ? m_file->tell() : -1); return v; }
+    inline const id& get_cluster() const { return m_ic.m_cluster; }
+    inline const header& get_forward_index() const { return m_reg.m_forward_index; }
+    inline const header& get_back_index() const { return m_reg.m_back_index; }
+    inline std::string stell() const { char v[256]; sprintf(v, "%lld:%ld", m_ic.m_cluster, m_ic.m_file ? m_ic.m_file->tell() : -1); return v; }
 
     /**
      * Segments are important positions in the stream of events which are referencable
@@ -143,14 +187,6 @@ public:
      * Enables `readonly` flag, disabling all write operations.
      */
     void goto_segment(id segment_id);
-
-    /**
-     * Notification that a cluster change occurred. Changing clusters means that
-     * all "known" objects must be forgotten.
-     * In the future, this should be intelligent about not dropping everything, but
-     * to only drop items referenced from footer, but this is not implemented yet.
-     */
-    virtual void cluster_changed(id old_cluster_id, id new_cluster_id) {}
 
     void flush();
 };
@@ -219,7 +255,7 @@ protected:
     void prepare_for_writing() override {
         // we need to fetch all objects that we are meant to know about
         // the only way to do this by default is to replay the file up to the end
-        while (iterate());
+        while (registry_iterate(m_file));
     }
 
 public:
@@ -231,8 +267,6 @@ public:
     : current_time(0)
     , db(dbpath, prefix, cluster_size)
     {}
-
-    virtual bool iterate() =0;
 
     //////////////////////////////////////////////////////////////////////////////////////
     // Writing
@@ -293,6 +327,12 @@ public:
 
     bool pop_event(uint8_t& cmd, bool& known) {
         uint8_t u8, timerel;
+        while (m_file->readonly() && m_file->eof()) {
+            auto next_cluster = m_reg.cluster_next(m_reg.m_current_cluster);
+            if (next_cluster != nullid) {
+                m_ic.open(next_cluster, true);
+            }
+        }
         try {
             read_cmd_time(u8, cmd, known, timerel, current_time);
         } catch (io_error) {
@@ -305,7 +345,6 @@ public:
 
     std::shared_ptr<T> pop_object() {
         std::shared_ptr<T> object = std::make_shared<T>();
-        auto pos = m_file->tell();
         load(object.get());
         id obid = object->m_sid;
         m_dictionary[obid] = object;
@@ -326,11 +365,14 @@ public:
         std::set<id> known;
         pop_references(known, mixed);
         for (id i : known) {
+            if (!m_dictionary.count(i)) fprintf(stderr, "*** pop_reference_hashes(): unknown key %llu\n", i);
             mixed.insert(m_dictionary.at(i)->m_hash);
         }
     }
 
-    virtual void cluster_changed(id old_cluster_id, id new_cluster_id) override {
+    virtual void registry_closing_cluster(id cluster) override {
+        db::registry_closing_cluster(cluster);
+        for (auto& kv : m_dictionary) kv.second->m_sid = unknownid;
         m_dictionary.clear();
         m_references.clear();
     }

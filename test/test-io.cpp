@@ -95,9 +95,9 @@ TEST_CASE("Streams", "[streams") {
         REQUIRE(stream.eof());
         REQUIRE(0 == stream.tell());
         byte = 0;
-        stream.write(&byte, 1);
+        stream.w(byte);
         byte = 1;
-        stream.write(&byte, 1);
+        stream.w(byte);
         REQUIRE(stream.to_string() == "0001");
         stream.seek(-1, SEEK_CUR);
         REQUIRE(1 == stream.tell());
@@ -147,10 +147,10 @@ TEST_CASE("Streams", "[streams") {
         REQUIRE(stream.eof());
         REQUIRE(0 == stream.tell());
         byte = 0;
-        stream.write(&byte, 1);
+        stream.w(byte);
         REQUIRE(1 == stream.tell());
         byte = 1;
-        stream.write(&byte, 1);
+        stream.w(byte);
         REQUIRE(2 == stream.tell());
         // REQUIRE(stream.to_string() == "0001");
         stream.seek(-1, SEEK_CUR);
@@ -598,5 +598,270 @@ TEST_CASE("Unordered set", "[unordered_set]") {
         cq::unordered_set ctl;
         for (auto& v : ids) ctl.m.insert(v);
         REQUIRE(set == ctl);
+    }
+}
+
+TEST_CASE("Clusters", "[clusters]") {
+    #define start(cd, c) auto ccd = new_cluster(); auto cd = ccd.first; auto c = ccd.second
+
+    #define startd(cd, c) auto c = new_cluster(&cd).second
+    #define restartd(cd, c) auto c = open_cluster(&cd).second
+    // class cluster : public serializer {
+    // public:
+    //     id m_cluster{0};
+    //     file* m_file;
+    //     cluster_delegate* m_delegate;
+    //     cluster(cluster_delegate* delegate);
+    //     ~cluster() override;
+    //     bool eof() override;
+    SECTION("construction") {
+        bool death_bool = false;
+        {
+            start(cd, c);
+            cd->death_ptr = &death_bool;
+            REQUIRE(!death_bool);
+            REQUIRE(c->eof());
+        }
+        REQUIRE(death_bool);
+    }
+
+    SECTION("open_for_writing") {
+        start(cd, c);
+        REQUIRE(cd->cluster_last(false) == cq::nullid);
+        REQUIRE(cd->size() == 0);
+        REQUIRE(cd->cluster_last(true) == 0);
+        REQUIRE(cd->size() == 1);
+        REQUIRE((*cd)[0] == 0);
+        REQUIRE(c->eof());
+    }
+
+    //     void resume_writing(bool clear = false) {
+    //     }
+
+    SECTION("resume writing") {
+        start(cd, c);
+        c->resume_writing();
+        REQUIRE(c->m_file != nullptr);
+        REQUIRE(c->m_cluster == 0);
+        REQUIRE(cd->cluster_last(false) == 0);
+        REQUIRE(c->eof());
+    }
+
+    //     size_t write(const uint8_t* data, size_t len) override;
+
+    uint32_t u32 = 0x01234567;
+    uint64_t u64 = 0x0123456789abcdef;
+    const char * string = "0123456789abcdef";
+
+    SECTION("writing") {
+        start(cd, c);
+        c->resume_writing();
+        *c << u32;
+        c->w(u64);
+        cq::varint(strlen(string)).serialize(c.get());
+        c->write((const uint8_t*)string, strlen(string));
+        REQUIRE(c->tell() == sizeof(u32) + sizeof(u64) + 1 + strlen(string));
+    }
+
+    //     size_t read(uint8_t* data, size_t len) override;
+
+    SECTION("reading") {
+        std::shared_ptr<test_cluster_delegate> cd;
+        {
+            startd(cd, c);
+            c->resume_writing();
+            *c << u32;
+            c->w(u64);
+            cq::varint(strlen(string)).serialize(c.get());
+            c->write((const uint8_t*)string, strlen(string));
+            REQUIRE(c->tell() == sizeof(u32) + sizeof(u64) + 1 + strlen(string));
+        }
+        {
+            uint32_t u32x;
+            uint64_t u64x;
+            char buf[17];
+            restartd(cd, c);
+            REQUIRE(cd->cluster_last(false) == 0);
+            c->open(0, false);
+            *c >> u32x;
+            REQUIRE(u32 == u32x);
+            c->r(u64x);
+            REQUIRE(u64 == u64x);
+            auto len = cq::varint::load(c.get());
+            REQUIRE(len == strlen(string));
+            c->read((uint8_t*)buf, len);
+            buf[len] = 0;
+            REQUIRE(std::string(buf) == string);
+        }
+    }
+
+    SECTION("multiple clusters") {
+        std::shared_ptr<test_cluster_delegate> cd;
+        {
+            startd(cd, c);
+            c->resume_writing();
+            *c << u32;
+            c->w(u64);
+            *cd += 1;
+            c->resume_writing();
+            cq::varint(strlen(string)).serialize(c.get());
+            c->write((const uint8_t*)string, strlen(string));
+            REQUIRE(c->tell() == 1 + strlen(string));
+        }
+        {
+            uint32_t u32x;
+            uint64_t u64x;
+            char buf[17];
+            restartd(cd, c);
+            REQUIRE(cd->cluster_last(false) == 1);
+            c->open(0, false);
+            *c >> u32x;
+            REQUIRE(u32 == u32x);
+            c->r(u64x);
+            REQUIRE(u64 == u64x);
+            auto len = cq::varint::load(c.get());
+            REQUIRE(len == strlen(string));
+            c->read((uint8_t*)buf, len);
+            buf[len] = 0;
+            REQUIRE(std::string(buf) == string);
+        }
+    }
+
+    //     void seek(long offset, int whence) override;
+    //     long tell() override;
+    //     void flush() override { m_file->flush(); }
+    // };
+}
+
+TEST_CASE("Indexed clusters", "[indexed-clusters]") {
+    #undef start
+    #undef startd
+    #undef restartd
+
+    #define start(cd, c) auto ccd = new_indexed_cluster(); auto cd = ccd.first; auto c = ccd.second
+
+    #define startd(cd, c) auto c = new_indexed_cluster(&cd).second
+    #define restartd(cd, c) auto c = open_indexed_cluster(&cd).second
+
+    // indexed cluster is exclusively overrides of cluster, so we use cluster source as basis
+    // class cluster : public serializer {
+    // public:
+    //     id m_cluster{0};
+    //     file* m_file;
+    //     cluster_delegate* m_delegate;
+    //     cluster(cluster_delegate* delegate);
+    //     ~cluster() override;
+    //     bool eof() override;
+    SECTION("construction") {
+        bool death_bool = false;
+        {
+            start(cd, c);
+            cd->death_ptr = &death_bool;
+            REQUIRE(!death_bool);
+            REQUIRE(c->m_ic.eof());
+        }
+        REQUIRE(death_bool);
+    }
+
+    SECTION("open_for_writing") {
+        start(cd, c);
+        REQUIRE(cd->cluster_last(false) == cq::nullid);
+        REQUIRE(cd->size() == 0);
+        REQUIRE(cd->cluster_last(true) == 0);
+        REQUIRE(cd->size() == 1);
+        REQUIRE((*cd)[0] == 0);
+        REQUIRE(c->m_ic.eof());
+    }
+
+    //     void resume_writing(bool clear = false) {
+    //     }
+
+    SECTION("resume writing") {
+        start(cd, c);
+        c->m_ic.resume_writing();
+        REQUIRE(c->m_ic.m_file != nullptr);
+        REQUIRE(c->m_ic.m_cluster == 0);
+        REQUIRE(cd->cluster_last(false) == 0);
+        REQUIRE(c->m_ic.eof());
+    }
+
+    //     size_t write(const uint8_t* data, size_t len) override;
+
+    uint32_t u32 = 0x01234567;
+    uint64_t u64 = 0x0123456789abcdef;
+    const char * string = "0123456789abcdef";
+
+    SECTION("writing") {
+        start(cd, c);
+        c->m_ic.resume_writing();
+        c->m_ic << u32;
+        c->m_ic.w(u64);
+        cq::varint(strlen(string)).serialize(&c->m_ic);
+        c->m_ic.write((const uint8_t*)string, strlen(string));
+        REQUIRE(c->m_ic.tell() == sizeof(cq::id) + sizeof(u32) + sizeof(u64) + 1 + strlen(string));
+    }
+
+    //     size_t read(uint8_t* data, size_t len) override;
+
+    SECTION("reading") {
+        std::shared_ptr<test_indexed_cluster_delegate> cd;
+        {
+            startd(cd, c);
+            c->m_ic.resume_writing();
+            c->m_ic << u32;
+            c->m_ic.w(u64);
+            cq::varint(strlen(string)).serialize(&c->m_ic);
+            c->m_ic.write((const uint8_t*)string, strlen(string));
+            REQUIRE(c->m_ic.tell() == sizeof(cq::id) + sizeof(u32) + sizeof(u64) + 1 + strlen(string));
+        }
+        {
+            uint32_t u32x;
+            uint64_t u64x;
+            char buf[17];
+            restartd(cd, c);
+            REQUIRE(cd->cluster_last(false) == 0);
+            c->m_ic.open(0, true);
+            c->m_ic >> u32x;
+            REQUIRE(u32 == u32x);
+            c->m_ic.r(u64x);
+            REQUIRE(u64 == u64x);
+            auto len = cq::varint::load(&c->m_ic);
+            REQUIRE(len == strlen(string));
+            c->m_ic.read((uint8_t*)buf, len);
+            buf[len] = 0;
+            REQUIRE(std::string(buf) == string);
+        }
+    }
+
+    SECTION("multiple clusters") {
+        std::shared_ptr<test_indexed_cluster_delegate> cd;
+        {
+            startd(cd, c);
+            c->m_ic.resume_writing();
+            c->m_ic << u32;
+            c->m_ic.w(u64);
+            *cd += 1;
+            c->m_ic.resume_writing();
+            cq::varint(strlen(string)).serialize(&c->m_ic);
+            c->m_ic.write((const uint8_t*)string, strlen(string));
+            REQUIRE(c->m_ic.tell() == sizeof(cq::id) + 1 + strlen(string));
+        }
+        {
+            uint32_t u32x;
+            uint64_t u64x;
+            char buf[17];
+            restartd(cd, c);
+            REQUIRE(cd->cluster_last(false) == 1);
+            c->m_ic.open(0, true);
+            c->m_ic >> u32x;
+            REQUIRE(u32 == u32x);
+            c->m_ic.r(u64x);
+            REQUIRE(u64 == u64x);
+            auto len = cq::varint::load(&c->m_ic);
+            REQUIRE(len == strlen(string));
+            c->m_ic.read((uint8_t*)buf, len);
+            buf[len] = 0;
+            REQUIRE(std::string(buf) == string);
+        }
     }
 }

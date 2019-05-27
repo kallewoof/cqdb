@@ -13,38 +13,16 @@
 
 namespace cq {
 
-id registry::open_cluster_for_segment(id segment) {
-    if (segment > m_tip) {
-        if (m_clusters.m.size() == 0 || segment / m_cluster_size > m_tip / m_cluster_size) {
-            m_clusters.m.insert(segment / m_cluster_size);
-        }
-        m_tip = segment;
-    }
-    return segment / m_cluster_size;
-}
-
-void registry::serialize(serializer* stream) const {
-    // CLUSTER SIZE
-    stream->write((uint8_t*)&m_cluster_size, 4);
-    // CLUSTERS
-    m_clusters.serialize(stream);
-    // TIP
-    id sub = m_cluster_size * (m_clusters.m.size() ? *m_clusters.m.rbegin() : 0);
-    assert(m_tip >= sub);
-    varint(m_tip - sub).serialize(stream);
-}
-
-void registry::deserialize(serializer* stream) {
-    // CLUSTER SIZE
-    stream->read((uint8_t*)&m_cluster_size, 4);
-    // CLUSTERS
-    m_clusters.deserialize(stream);
-    // TIP
-    id add = m_cluster_size * (m_clusters.m.size() ? *m_clusters.m.rbegin() : 0);
-    m_tip = varint::load(stream) + add;
-}
+// header
 
 header::header(uint8_t version, uint64_t timestamp, id cluster) : m_cluster(cluster), m_version(version), m_timestamp_start(timestamp) {}
+
+void header::reset(uint8_t version, uint64_t timestamp, id cluster) {
+    m_cluster = cluster;
+    m_version = version;
+    m_timestamp_start = timestamp;
+    m_segments.clear();
+}
 
 header::header(id cluster, serializer* stream) : m_cluster(cluster) {
     deserialize(stream);
@@ -56,9 +34,9 @@ void header::serialize(serializer* stream) const {
     magic[0] = 'C'; magic[1] = 'Q';
     stream->write((uint8_t*)magic, 2);
     // VERSION
-    stream->write(&m_version, 1);
+    stream->w(m_version);
     // TIMESTAMP
-    stream->write((uint8_t*)&m_timestamp_start, 8);
+    stream->w(m_timestamp_start);
     // SEGMENTS
     m_segments.serialize(stream);
 }
@@ -73,9 +51,9 @@ void header::deserialize(serializer* stream) {
         throw db_error(v);
     }
     // VERSION
-    stream->read(&m_version, 1);
+    stream->r(m_version);
     // TIMESTAMP
-    stream->read((uint8_t*)&m_timestamp_start, 8);
+    stream->r(m_timestamp_start);
     // SEGMENTS
     m_segments.deserialize(stream);
 }
@@ -100,76 +78,121 @@ id header::get_last_segment() const {
     return m_segments.size() ? m_segments.m.rbegin()->first : 0;
 }
 
-std::string db::cluster_path(id cluster = -1) {
-    char clu[6];
-    sprintf(clu, "%05lld", cluster == -1 ? m_cluster : cluster);
-    return m_dbpath + "/" + m_prefix + clu + ".cq"; 
-}
+// registry
 
-void db::open(bool readonly) {
-    // TODO: timestamps in headers/footers are all 0
-    if (m_file) {
-        delete m_file;
-        m_file = nullptr;
-    }
-    if (m_header) {
-        if (!m_readonly) {
-            // header may have changed; write to disk before closing
-            file next_file(cluster_path(m_header->m_cluster), false, true);
-            m_header->serialize(&next_file);
+id registry::prepare_cluster_for_segment(id segment) {
+    if (segment > m_tip) {
+        if (m_clusters.m.size() == 0 || segment / m_cluster_size > m_tip / m_cluster_size) {
+            m_clusters.m.insert(segment / m_cluster_size);
         }
-        delete m_header;
-        m_header = nullptr;
+        m_tip = segment;
     }
-    if (m_footer) {
-        delete m_footer;
-        m_footer = nullptr;
-    }
-
-    // fprintf(stderr, "opening %s\n", cluster_path().c_str());
-    m_file = new file(cluster_path(), false);
-    if (readonly) {
-        // read footer
-        m_footer = new footer(m_cluster, m_file);
-    } else {
-        if (m_file->empty()) {
-            // write footer
-            m_footer = new footer(1, 0, m_cluster);
-            m_footer->serialize(m_file);
-        } else {
-            // we are opening with the intent on writing, so we move to the end of the file automagically, but
-            // read footer first
-            m_footer = new footer(m_cluster, m_file);
-            prepare_for_writing();
-        }
-    }
-    m_readonly = readonly;
-    id next_cluster = m_cluster + 1;
-    try {
-        file next_file(cluster_path(next_cluster), true);
-        m_header = new header(next_cluster, &next_file);
-    } catch (fs_error& e) {
-        // file probably not found; start with blank header
-        m_header = new header(1, 0, next_cluster);
-    }
+    return segment / m_cluster_size;
 }
 
-void db::resume() {
-    if (m_reg.m_tip == 0) throw db_error("initial segment must be begun before writing to CQ database");
-    m_cluster = m_reg.open_cluster_for_segment(m_reg.m_tip);
-    open(false);
+void registry::serialize(serializer* stream) const {
+    // CLUSTER SIZE
+    stream->w(m_cluster_size);
+    // CLUSTERS
+    m_clusters.serialize(stream);
+    // TIP
+    id sub = m_cluster_size * (m_clusters.m.size() ? *m_clusters.m.rbegin() : 0);
+    assert(m_tip >= sub);
+    varint(m_tip - sub).serialize(stream);
 }
+
+void registry::deserialize(serializer* stream) {
+    // CLUSTER SIZE
+    stream->r(m_cluster_size);
+    // CLUSTERS
+    m_clusters.deserialize(stream);
+    // TIP
+    id add = m_cluster_size * (m_clusters.m.size() ? *m_clusters.m.rbegin() : 0);
+    m_tip = varint::load(stream) + add;
+}
+
+id registry::cluster_next(id cluster) {
+    if (m_clusters.m.size() == 0) return nullid;
+    id last = *m_clusters.m.rbegin();
+    if (last <= cluster) return nullid;
+    if (cluster + 32 < last) return cluster + 1;
+    auto e = m_clusters.m.end();
+    auto lower_bound = m_clusters.m.lower_bound(cluster);
+    if (lower_bound == e) return nullid;
+    lower_bound++;
+    return lower_bound == e ? nullid : *lower_bound;
+}
+
+id registry::cluster_last(bool open_for_writing) {
+    id last_cluster = m_clusters.m.size() == 0 ? nullid : *m_clusters.m.rbegin();
+    if (open_for_writing && last_cluster == nullid) {
+        last_cluster = 0;
+        m_clusters.m.insert(0);
+        m_current_cluster = 0;
+    }
+    return last_cluster;
+}
+
+std::string registry::cluster_path(id cluster) {
+    char clu[30];
+    sprintf(clu, "%05lld", cluster);
+    return m_dbpath + "/" + m_prefix + clu + ".cq";
+}
+
+void registry::cluster_will_close(id cluster) {
+    m_delegate->registry_closing_cluster(cluster);
+}
+
+void registry::cluster_opened(id cluster, file* file) {
+    m_current_cluster = cluster;
+    m_delegate->registry_opened_cluster(cluster, file);
+}
+
+void registry::cluster_write_forward_index(id cluster, file* file) {
+    assert(cluster == m_current_cluster + 1);
+    assert(cluster == m_forward_index.m_cluster);
+    m_forward_index.serialize(file);
+}
+
+void registry::cluster_read_forward_index(id cluster, file* file) {
+    m_forward_index.m_cluster = cluster;
+    m_forward_index.deserialize(file);
+}
+
+void  registry::cluster_clear_forward_index(id cluster) {
+    m_forward_index.reset(HEADER_VERSION, 0, cluster);
+}
+
+void registry::cluster_read_back_index(id cluster, file* file) {
+    m_back_index.m_cluster = m_current_cluster = cluster;
+    m_back_index.deserialize(file);
+}
+
+void registry::cluster_clear_and_write_back_index(id cluster, file* file) {
+    m_back_index.reset(HEADER_VERSION, 0, cluster);
+    m_back_index.serialize(file);
+}
+
+// db
 
 db::db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size)
     : m_dbpath(dbpath)
     , m_prefix(prefix)
-    , m_cluster(0)
-    , m_reg(cluster_size)
-    , m_header(nullptr)
-    , m_footer(nullptr)
-    , m_readonly(true)
+    , m_reg(this, dbpath, prefix, cluster_size)
     , m_file(nullptr)
+    , m_ic(&m_reg)
 {}
+
+void db::open(id cluster, bool readonly) {
+    m_ic.open(cluster, readonly);
+}
+
+void db::resume() {
+    m_ic.resume_writing(false);
+    // if (m_reg.m_tip == 0) throw db_error("initial segment must be begun before writing to CQ database");
+    // m_cluster = m_reg.prepare_cluster_for_segment(m_reg.m_tip);
+    // open(false);
+}
 
 void db::load() {
     if (!mkdir(m_dbpath)) {
@@ -182,8 +205,14 @@ void db::load() {
 db::~db() {
     file regfile(m_dbpath + "/cq.registry", false, true);
     m_reg.serialize(&regfile);
-    if (m_header) delete m_header;
-    if (m_file) delete m_file;
+    m_ic.close();
+}
+
+void db::registry_closing_cluster(id cluster) {
+}
+
+void db::registry_opened_cluster(id cluster, file* file) {
+    m_file = file;
 }
 
 //
@@ -191,8 +220,8 @@ db::~db() {
 //
 
 id db::store(object* t) {
-    if (m_readonly) resume();
-    assert(m_file);
+    if (!m_file) throw db_error("invalid operation -- db not ready (no segment begun)");
+    if (m_file->readonly()) resume();
     assert(t);
     id rval = m_file->tell();
     t->serialize(m_file);
@@ -221,7 +250,7 @@ void db::fetch(object* t, id i) {
 void db::refer(object* t) {
     assert(m_file);
     assert(t);
-    assert(t->m_sid);
+    assert(t->m_sid != unknownid);
     assert(t->m_sid < m_file->tell());
     varint(m_file->tell() - t->m_sid).serialize(m_file);
 }
@@ -281,7 +310,7 @@ void db::refer(object** ts, size_t sz) {
     }
     // write unknown object refs
     for (id i = 0; i < sz; ++i) {
-        if (ts[i]->m_sid == 0) {
+        if (ts[i]->m_sid == unknownid) {
             ts[i]->m_hash.Serialize(*m_file);
         }
     }
@@ -314,23 +343,20 @@ void db::derefer(std::set<id>& known_out,  std::set<uint256>& unknown_out) {
 
 void db::begin_segment(id segment_id) {
     if (segment_id < m_reg.m_tip) throw db_error("may not begin a segment < current tip");
-    id new_cluster = m_reg.open_cluster_for_segment(segment_id);
-    assert(m_reg.m_tip == segment_id);
-    if (m_cluster != new_cluster || !m_file) {
-        id old_cluster = m_cluster;
-        resume();
-        cluster_changed(old_cluster, new_cluster);
+    id new_cluster = m_reg.prepare_cluster_for_segment(segment_id);
+    assert(m_reg.m_tip == segment_id || !m_file);
+    if (new_cluster != m_reg.m_current_cluster || !m_file) {
+        m_ic.open(new_cluster, false);
     }
-    m_header->mark_segment(segment_id, m_file->tell());
+    m_reg.m_forward_index.mark_segment(segment_id, m_file->tell());
 }
 
 void db::goto_segment(id segment_id) {
-    id new_cluster = m_reg.open_cluster_for_segment(segment_id);
-    if (new_cluster != m_cluster || !m_file) {
-        m_cluster = new_cluster;
-        open(true);
+    id new_cluster = m_reg.prepare_cluster_for_segment(segment_id);
+    if (new_cluster != m_reg.m_current_cluster || !m_file) {
+        m_ic.open(new_cluster, true);
     }
-    id pos = m_header->get_segment_position(segment_id);
+    id pos = m_reg.m_forward_index.get_segment_position(segment_id);
     m_file->seek(pos, SEEK_SET);
 }
 

@@ -22,6 +22,8 @@ bool rmdir_r(const std::string& path);
 void randomize(void* dst, size_t bytes);
 
 typedef uint64_t id;
+constexpr id nullid = 0xffffffffffffffff;
+#define PRIid PRIu64
 
 class serializer {
 public:
@@ -36,17 +38,19 @@ public:
     virtual void flush() {}
 
     // bitcoin core compatibility
-    inline size_t write(char* data, size_t len) { return write((const uint8_t*)data, len); }
+    inline size_t write(const char* data, size_t len) { return write((const uint8_t*)data, len); }
     inline size_t read(char* data, size_t len) { return read((uint8_t*)data, len); }
+
+    template<typename T> inline size_t w(const T& data) { return write((const uint8_t*)&data, sizeof(T)); }
+    template<typename T> inline size_t r(T& data)        { return read((uint8_t*)&data, sizeof(T)); }
 
     template<typename T> serializer& operator<<(const std::vector<T>& vec);
     template<typename T> serializer& operator>>(std::vector<T>& vec);
-    template<typename T> serializer& operator<<(const T& obj) { static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be serialized as is; call .serialize()"); if (sizeof(T) != write((const uint8_t*)&obj, sizeof(obj))) throw fs_error("failed serialization"); return *this; }
-    template<typename T> serializer& operator>>(T& obj) { static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be deserialized as is; call .deserialize()"); if (sizeof(T) != read((uint8_t*)&obj, sizeof(obj))) throw fs_error("failed deserialization"); return *this; }
+    template<typename T> serializer& operator<<(const T& obj) { static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be serialized as is; call .serialize()"); if (sizeof(T) != w(obj)) throw fs_error("failed serialization"); return *this; }
+    template<typename T> serializer& operator>>(T& obj) { static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be deserialized as is; call .deserialize()"); if (sizeof(T) != r(obj)) throw fs_error("failed deserialization"); return *this; }
 
     virtual std::string to_string() const { return "?"; }
 };
-
 
 class serializable {
 public:
@@ -133,12 +137,12 @@ public:
     }
     void serialize(serializer* stream) const override {
         uint8_t val = m_value < CAP ? m_value : CAP;
-        stream->write(&val, 1);
+        stream->w(val);
         cond_serialize(stream);
     }
     void deserialize(serializer* stream) override {
         uint8_t val;
-        stream->read(&val, 1);
+        stream->r(val);
         cond_deserialize(val, stream);
     }
 };
@@ -172,17 +176,24 @@ struct unordered_set : serializable {
 class file : public serializer {
 private:
     long m_tell;
+    bool m_readonly;
     FILE* m_fp;
+    std::string m_path;
 public:
     file(FILE* fp);
     file(const std::string& path, bool readonly, bool clear = false);
+    static bool accessible(const std::string& path);
     ~file() override;
     bool eof() override;
+    using serializer::write;
+    using serializer::read;
     size_t write(const uint8_t* data, size_t len) override;
     size_t read(uint8_t* data, size_t len) override;
     void seek(long offset, int whence) override;
     long tell() override;
     void flush() override { fflush(m_fp); }
+    bool readonly() const { return m_readonly; }
+    const std::string& get_path() const { return m_path; }
 };
 
 class chv_stream : public serializer {
@@ -204,6 +215,100 @@ public:
         }
         return rv;
     }
+};
+
+class cluster_delegate {
+public:
+    virtual ~cluster_delegate() {}
+    virtual id cluster_next(id cluster) =0;
+    virtual id cluster_last(bool open_for_writing) =0;
+    virtual std::string cluster_path(id cluster) =0;
+    virtual void cluster_opened(id cluster, file* file) =0;
+    virtual void cluster_will_close(id cluster) =0;
+};
+
+class cluster : public serializer {
+public:
+    id m_cluster{nullid};
+    file* m_file;
+    cluster_delegate* m_delegate;
+    cluster(cluster_delegate* delegate);
+    ~cluster() override;
+    virtual void open(id cluster, bool readonly, bool clear = false);
+    virtual void close() {}
+    virtual void resume_writing(bool clear = false);
+    bool eof() override;
+    size_t write(const uint8_t* data, size_t len) override;
+    size_t read(uint8_t* data, size_t len) override;
+    void seek(long offset, int whence) override;
+    long tell() override;
+    void flush() override { m_file->flush(); }
+};
+
+class indexed_cluster_delegate : public cluster_delegate {
+public:
+    /**
+     * Write the in-memory index for the current data block (`cluster`) being written
+     * into the given serializer `file`. Repeat calls to this method may occur for the
+     * same index.
+     */
+    virtual void cluster_write_forward_index(id cluster, file* file) =0;
+
+    virtual void cluster_read_forward_index(id cluster, file* file) =0;
+
+    virtual void cluster_clear_forward_index(id cluster) =0;
+
+    /**
+     * Read the back index from `file` for the data directly behind the data
+     * block corresponding to the given id `cluster`. I.e. if cluster = 5, the
+     * back index is the indexed content of cluster 4, stored in the header of
+     * cluster 5. The data need not be retained.
+     */
+    virtual void cluster_read_back_index(id cluster, file* file) =0;
+
+    virtual void cluster_clear_and_write_back_index(id cluster, file* file) =0;
+
+    virtual bool cluster_iterate(id cluster, file* file) =0;
+};
+
+/**
+ * indexed clusters keep the index in the successing file, as described below
+ *
+ * [ null ][ data0 ] - [ idx0 ][ data1 ] - [ idx1 ][ ... ]
+ *
+ * a more concrete example with 3 clusters is as follows:
+ *
+ * [  cluster 0 ] - [  cluster 1 ] - [  cluster 2 ]
+ * [ I- ][  D0  ]   [ I0 ][  D0  ]   [ I1 ][  D2  ]   [ I2 ]
+ * I- = blank (index for non-existent cluster -1; header for cluster 0)
+ * D0 = content of cluster 0 (indexed in I0)
+ * I0 = index for cluster 0 (back index for cluster 1, forward index for cluster 0)
+ * D1 = content of cluster 1 (indexed in I1)
+ * I1 = index for cluster 1 (back index for cluster 2, forward index for cluster 1)
+ * D2 = content of cluster 2 (indexed in I2)
+ * I2 = index for cluster 2 (header for as yet non-existent cluster 3, footer for cluster 2)
+ *
+ * opening cluster 1 (readonly):
+ * [  cluster 0 ] - [  cluster 1 ] - [  cluster 2 ]
+ * [ I- ][  D0  ]   [ I0 ][  D0  ]   [ I1 ][  D2  ]   [ I2 ]
+ *                  AAAAAABBBBBBBB
+ *  A:readonly index -'      '- B:cluster data
+ *
+ * resume writing (readwrite):
+ * [  cluster 0 ] - [  cluster 1 ] - [  cluster 2 ]
+ * [ I- ][  D0  ]   [ I0 ][  D0  ]   [ I1 ][  D2  ]   [ I2 ]
+ *                                   AAAAAABBBBBBBB   CCCCCC
+ *                   A:readonly index -'      |          '- C:(in-progress writable) index for D2
+ *                                            '- B:(partial writable) cluster data
+ */
+class indexed_cluster final : public cluster {
+public:
+    indexed_cluster_delegate* m_delegate;
+    indexed_cluster(indexed_cluster_delegate* delegate) : cluster(delegate) {
+        m_delegate = delegate;
+    }
+    void open(id cluster, bool readonly, bool clear = false) override;
+    virtual void close() override;
 };
 
 } // namespace cq

@@ -13,13 +13,19 @@ TESTCQDB=test-cqdb
 TESTS = $(TESTCQDB)
 check_PROGRAMS = $(TESTCQDB)
 noinst_PROGRAMS = $(TESTCQDB)
-lib_LTLIBRARIES = libcqdb.la
+
+# LIBCQDB=libcqdb.la
+# CQDB=libcqdb_la
+# lib_LTLIBRARIES = ${CQDB}
+LIBCQDB=libcqdb.a
+CQDB=libcqdb_a
+lib_LIBRARIES = $(LIBCQDB)
 
 .PHONY: FORCE check-symbols check-security
 
 # CQDB #
 
-libcqdb_la_SOURCES = \
+libcqdb_a_SOURCES = \
 	src/cq.cpp \
 	src/io.cpp \
 	src/uint256.cpp \
@@ -28,8 +34,8 @@ libcqdb_la_SOURCES = \
 	include/cqdb/io.h \
 	include/uint256.h \
 	include/utilstrencodings.h
-libcqdb_la_CPPFLAGS = $(AM_CPPFLAGS) $(CQDB_INCLUDES)
-libcqdb_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+libcqdb_a_CPPFLAGS = $(AM_CPPFLAGS) $(CQDB_INCLUDES)
+libcqdb_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 cqdbincludedir = $(includedir)/cqdb
 cqdbinclude_HEADERS = include/cqdb/cq.h include/cqdb/io.h include/cqdb/uint256.h include/cqdb/utilstrencodings.h
 
@@ -46,7 +52,7 @@ test_cqdb_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_cqdb_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_AP_LDFLAGS)
 
 test_cqdb_LDADD = \
-	libcqdb.la
+	$(LIBCQDB)
 
 clean-local:
 	-rm -f config.h

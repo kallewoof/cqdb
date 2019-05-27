@@ -73,7 +73,7 @@ void incmap::serialize(serializer* stream) const {
     }
     lv = 0;
     for (const auto& kv : m) {
-        assert(kv.first >= lv);
+        assert(kv.second >= lv);
         v.m_value = kv.second - lv;
         lv = kv.second;
         v.serialize(stream);
@@ -131,13 +131,24 @@ void unordered_set::deserialize(serializer* stream) {
 file::file(FILE* fp) : m_tell(0), m_fp(fp) {}
 
 file::file(const std::string& fname, bool readonly, bool clear) {
+    m_path = fname;
+    m_readonly = readonly;
     m_tell = 0;
     m_fp = nullptr;
     if (!clear || readonly) {
-        m_fp = fopen(fname.c_str(), readonly ? "rb" : "rb+");
+        m_fp = fopen(m_path.c_str(), readonly ? "rb" : "rb+");
     }
-    if (!m_fp && !readonly) m_fp = fopen(fname.c_str(), "wb+");
-    if (!m_fp) throw fs_error("cannot open file" + fname);
+    if (!m_fp && !readonly) m_fp = fopen(m_path.c_str(), "wb+");
+    if (!m_fp) throw fs_error("cannot open file" + m_path);
+}
+
+bool file::accessible(const std::string& fname) {
+    FILE* fp = fopen(fname.c_str(), "r");
+    if (fp) {
+        fclose(fp);
+        return true;
+    }
+    return false;
 }
 
 file::~file() {
@@ -156,6 +167,7 @@ bool file::eof() {
 }
 
 size_t file::write(const uint8_t* data, size_t len) {
+    assert(!m_readonly);
     size_t w = fwrite(data, 1, len, m_fp);
     if (w != len) throw io_error("write error");
     m_tell += w;
@@ -205,6 +217,106 @@ void chv_stream::seek(long offset, int whence) {
     if (m_tell > m_chv.size()) m_tell = m_chv.size();
 }
 long chv_stream::tell() { return m_tell; }
+
+// cluster stream
+
+cluster::cluster(cluster_delegate* delegate) : m_delegate(delegate), m_file(nullptr) {}
+cluster::~cluster()                                     { if (m_file) delete m_file; }
+size_t cluster::write(const uint8_t* data, size_t len)  { return m_file->write(data, len); }
+void cluster::seek(long offset, int whence)             { m_file->seek(offset, whence); }
+long cluster::tell()                                    { return m_file->tell(); }
+
+void cluster::open(id cluster, bool readonly, bool clear) {
+    if (m_cluster != nullid) m_delegate->cluster_will_close(m_cluster);
+    bool require_readonly = !clear && (m_cluster != nullid && cluster < m_cluster);
+    if (require_readonly && !readonly) throw io_error("readonly mode required when opening target cluster (non-sequential operation requested)");
+    m_cluster = cluster;
+    if (m_file) delete m_file;
+    m_file = new file(m_delegate->cluster_path(m_cluster), readonly, clear);
+    m_delegate->cluster_opened(m_cluster, m_file);
+}
+
+bool cluster::eof() {
+    if (m_cluster == nullid) return true;
+    for (id next_cluster = m_delegate->cluster_next(m_cluster);
+         m_file || next_cluster != nullid;
+         next_cluster = m_delegate->cluster_next(m_cluster)) {
+        if (m_file && !m_file->eof()) return false;
+        if (next_cluster == nullid) return true;
+        open(next_cluster, m_file->readonly());
+    }
+    return !m_file || m_file->eof();
+}
+
+size_t cluster::read(uint8_t* data, size_t len) {
+    for (;;) {
+        try {
+            return m_file->read(data, len);
+        } catch (io_error& err) {
+            if (eof()) throw err;
+        }
+    }
+}
+
+void cluster::resume_writing(bool clear) {
+    open(m_delegate->cluster_last(true), false, clear);
+    assert(!m_file->readonly());
+}
+
+// indexed cluster
+
+void indexed_cluster::close() {
+    if (m_cluster != nullid) {
+        m_delegate->cluster_will_close(m_cluster);
+        if (!m_file->readonly()) {
+            file forward_index(m_delegate->cluster_path(m_cluster + 1), false);
+            m_delegate->cluster_write_forward_index(m_cluster + 1, &forward_index);
+        }
+    }
+}
+
+void indexed_cluster::open(id cluster, bool readonly, bool clear) {
+    // 0. If readwrite open, write forward index (aka "close").
+    close();
+
+    if (m_file) delete m_file;
+
+    if (readonly) {
+        // 1. Read forward index. Open and read from cluster (x+1).
+        //    Must exist. Throws a fs_error if not found.
+        file forward_index(m_delegate->cluster_path(cluster + 1), true);
+        m_delegate->cluster_read_forward_index(cluster + 1, &forward_index);
+        // 2. Open cluster x. Read back index.
+        m_cluster = cluster;
+        m_file = new file(m_delegate->cluster_path(m_cluster), true);
+        m_delegate->cluster_read_back_index(m_cluster, m_file);
+        m_delegate->cluster_opened(m_cluster,  m_file);
+        return;
+    }
+
+    // for writing
+
+	// 1. Read forward index from cluster x+1 if found.
+    if (file::accessible(m_delegate->cluster_path(cluster + 1))) {
+        file forward_index(m_delegate->cluster_path(cluster + 1), true);
+        m_delegate->cluster_read_forward_index(cluster + 1, &forward_index);
+    } else {
+        m_delegate->cluster_clear_forward_index(cluster + 1);
+    }
+
+	// 2. Read back index from cluster x if found.
+    m_cluster = cluster;
+    m_file = new file(m_delegate->cluster_path(m_cluster), false);
+    if (!m_file->eof()) {
+        m_delegate->cluster_read_back_index(m_cluster, m_file);
+        m_delegate->cluster_opened(m_cluster, m_file);
+        // 3. Iterate cluster x to end.
+        while (m_delegate->cluster_iterate(m_cluster, m_file));
+    } else {
+        m_delegate->cluster_clear_and_write_back_index(m_cluster, m_file);
+        m_delegate->cluster_opened(m_cluster, m_file);
+    }
+}
 
 // helper fun
 
@@ -288,8 +400,10 @@ bool rmdir_r(const std::string& path)
 void randomize(void* dst, size_t bytes)
 {
     static FILE* urandom = nullptr;
-    if (!urandom) urandom = fopen("/dev/urandom", "rb");
-    if (!urandom) throw std::runtime_error("cannot open /dev/urandom");
+    if (!urandom) {
+        urandom = fopen("/dev/urandom", "rb");
+        if (!urandom) throw std::runtime_error("cannot open /dev/urandom");
+    }
     size_t rd = fread(dst, 1, bytes, urandom);
     if (rd != bytes) throw std::runtime_error("unable to read from /dev/urandom");
 }
