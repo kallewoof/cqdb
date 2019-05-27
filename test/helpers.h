@@ -16,10 +16,10 @@ static inline cq::conditional* get_varint(uint8_t b, cq::id value) {
 
 struct test_object : public cq::object {
     using cq::object::object;
-    void serialize(cq::serializer* stream) const override {
+    void Serialize(cq::serializer* stream) const override {
         m_hash.Serialize(*stream);
     }
-    void deserialize(cq::serializer* stream) override {
+    void Deserialize(cq::serializer* stream) override {
         m_hash.Unserialize(*stream);
     }
     static std::shared_ptr<test_object> make_random_unknown() {
@@ -184,8 +184,8 @@ inline size_t cluster_file_count(const std::string& dbpath = "/tmp/cq-io-test-cl
 
 struct test_index : public cq::serializable {
     cq::id index_id = cq::nullid;
-    void serialize(cq::serializer* stream) const override { stream->w(index_id); }
-    void deserialize(cq::serializer* stream) override     { stream->r(index_id); }
+    void Serialize(cq::serializer* stream) const override { stream->w(index_id); }
+    void Deserialize(cq::serializer* stream) override     { stream->r(index_id); }
 };
 
 struct test_indexed_cluster_delegate : public cq::indexed_cluster_delegate {

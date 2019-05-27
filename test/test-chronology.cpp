@@ -70,7 +70,7 @@ TEST_CASE("Time relative", "[timerel]") {
                     expected_time += relative_time;
                     uint8_t u8x = cmd8 | (known8 << 5) | cq::time_rel_bits(relative_time);
                     stream << u8x;
-                    if (rtv) rtv->serialize(&stream);
+                    if (rtv) stream << *rtv;
                     stream.seek(0, SEEK_SET);
                     read_cmd_time(u8, cmd, known, timerel, m_current_time, m_current_time);
                     REQUIRE(u8 == u8x);

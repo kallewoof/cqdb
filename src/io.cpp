@@ -27,7 +27,7 @@ uint8_t serializer::get_uint8() {
     throw fs_error(eof() ? "end of file" : "error reading from disk");
 }
 
-void varint::serialize(serializer* stream) const {
+void varint::Serialize(serializer* stream) const {
     int nel = (sizeof(id)*8+6)/7;
     int marker = nel;
     unsigned char tmp[nel];
@@ -41,26 +41,26 @@ void varint::serialize(serializer* stream) const {
     stream->write(&tmp[nel], marker - nel);
 }
 
-void varint::deserialize(serializer* stream) {
+void varint::Deserialize(serializer* stream) {
     m_value = 0;
     while(true) {
         uint8_t chData = stream->get_uint8();
         if (m_value > (std::numeric_limits<id>::max() >> 7)) {
-           throw io_error("varint::deserialize(): size too large");
+           throw io_error("varint::Deserialize(): size too large");
         }
         m_value = (m_value << 7) | (chData & 0x7F);
         if (chData & 0x80) {
             if (m_value == std::numeric_limits<id>::max()) {
-                throw io_error("varint::deserialize(): size too large");
+                throw io_error("varint::Deserialize(): size too large");
             }
             m_value++;
         } else return;
     }
 }
 
-void incmap::serialize(serializer* stream) const {
+void incmap::Serialize(serializer* stream) const {
     // VARINT : number of entries
-    varint((id)(m.size())).serialize(stream);
+    *stream << varint((id)(m.size()));
     // serialize as varints equal to the diff with the previous element
     // TODO: use binomial encoding or something
     varint v;
@@ -69,18 +69,18 @@ void incmap::serialize(serializer* stream) const {
         assert(kv.first >= lv);
         v.m_value = kv.first - lv;
         lv = kv.first;
-        v.serialize(stream);
+        *stream << v;
     }
     lv = 0;
     for (const auto& kv : m) {
         assert(kv.second >= lv);
         v.m_value = kv.second - lv;
         lv = kv.second;
-        v.serialize(stream);
+        *stream << v;
     }
 }
 
-void incmap::deserialize(serializer* stream) {
+void incmap::Deserialize(serializer* stream) {
     // VARINT : number of entries
     id size = varint::load(stream);
     // deserialize as varints equal to the diff with the previous element
@@ -102,9 +102,9 @@ bool incmap::operator==(const incmap& other) const {
     // return true;
 }
 
-void unordered_set::serialize(serializer* stream) const {
+void unordered_set::Serialize(serializer* stream) const {
     // VARINT : number of entries
-    varint((id)(m.size())).serialize(stream);
+    *stream << varint((id)(m.size()));
     // serialize as varints equal to the diff with the previous element
     // TODO: use binomial encoding or something
     varint v;
@@ -113,11 +113,11 @@ void unordered_set::serialize(serializer* stream) const {
         assert(k >= lv);
         v.m_value = k - lv;
         lv = k;
-        v.serialize(stream);
+        *stream << v;
     }
 }
 
-void unordered_set::deserialize(serializer* stream) {
+void unordered_set::Deserialize(serializer* stream) {
     // VARINT : number of entries
     id size = varint::load(stream);
     // deserialize as varints equal to the diff with the previous element

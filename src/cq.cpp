@@ -25,10 +25,10 @@ void header::reset(uint8_t version, uint64_t timestamp, id cluster) {
 }
 
 header::header(id cluster, serializer* stream) : m_cluster(cluster) {
-    deserialize(stream);
+    Deserialize(stream);
 }
 
-void header::serialize(serializer* stream) const {
+void header::Serialize(serializer* stream) const {
     // MAGIC
     char magic[2];
     magic[0] = 'C'; magic[1] = 'Q';
@@ -38,10 +38,10 @@ void header::serialize(serializer* stream) const {
     // TIMESTAMP
     stream->w(m_timestamp_start);
     // SEGMENTS
-    m_segments.serialize(stream);
+    *stream << m_segments;
 }
 
-void header::deserialize(serializer* stream) {
+void header::Deserialize(serializer* stream) {
     // MAGIC
     char magic[2];
     stream->read(magic, 2);
@@ -55,7 +55,7 @@ void header::deserialize(serializer* stream) {
     // TIMESTAMP
     stream->r(m_timestamp_start);
     // SEGMENTS
-    m_segments.deserialize(stream);
+    *stream >> m_segments;
 }
 
 void header::mark_segment(id segment, id position) {
@@ -90,22 +90,22 @@ id registry::prepare_cluster_for_segment(id segment) {
     return segment / m_cluster_size;
 }
 
-void registry::serialize(serializer* stream) const {
+void registry::Serialize(serializer* stream) const {
     // CLUSTER SIZE
-    stream->w(m_cluster_size);
+    *stream << m_cluster_size;
     // CLUSTERS
-    m_clusters.serialize(stream);
+    *stream << m_clusters;
     // TIP
     id sub = m_cluster_size * (m_clusters.m.size() ? *m_clusters.m.rbegin() : 0);
     assert(m_tip >= sub);
-    varint(m_tip - sub).serialize(stream);
+    *stream << varint(m_tip - sub);
 }
 
-void registry::deserialize(serializer* stream) {
+void registry::Deserialize(serializer* stream) {
     // CLUSTER SIZE
-    stream->r(m_cluster_size);
+    *stream >> m_cluster_size;
     // CLUSTERS
-    m_clusters.deserialize(stream);
+    *stream >> m_clusters;
     // TIP
     id add = m_cluster_size * (m_clusters.m.size() ? *m_clusters.m.rbegin() : 0);
     m_tip = varint::load(stream) + add;
@@ -151,12 +151,12 @@ void registry::cluster_opened(id cluster, file* file) {
 void registry::cluster_write_forward_index(id cluster, file* file) {
     assert(cluster == m_current_cluster + 1);
     assert(cluster == m_forward_index.m_cluster);
-    m_forward_index.serialize(file);
+    *file << m_forward_index;
 }
 
 void registry::cluster_read_forward_index(id cluster, file* file) {
     m_forward_index.m_cluster = cluster;
-    m_forward_index.deserialize(file);
+    *file >> m_forward_index;
 }
 
 void  registry::cluster_clear_forward_index(id cluster) {
@@ -165,12 +165,12 @@ void  registry::cluster_clear_forward_index(id cluster) {
 
 void registry::cluster_read_back_index(id cluster, file* file) {
     m_back_index.m_cluster = m_current_cluster = cluster;
-    m_back_index.deserialize(file);
+    *file >> m_back_index;
 }
 
 void registry::cluster_clear_and_write_back_index(id cluster, file* file) {
     m_back_index.reset(HEADER_VERSION, 0, cluster);
-    m_back_index.serialize(file);
+    *file << m_back_index;
 }
 
 // db
@@ -197,14 +197,14 @@ void db::resume() {
 void db::load() {
     if (!mkdir(m_dbpath)) {
         file regfile(m_dbpath + "/cq.registry", false);
-        m_reg.deserialize(&regfile);
+        regfile >> m_reg;
         resume();
     }
 }
 
 db::~db() {
     file regfile(m_dbpath + "/cq.registry", false, true);
-    m_reg.serialize(&regfile);
+    regfile << m_reg;
     m_ic.close();
 }
 
@@ -224,7 +224,7 @@ id db::store(object* t) {
     if (m_file->readonly()) resume();
     assert(t);
     id rval = m_file->tell();
-    t->serialize(m_file);
+    *m_file << *t;
     t->m_sid = rval;
     return rval;
 }
@@ -233,7 +233,7 @@ void db::load(object* t) {
     assert(m_file);
     assert(t);
     id rval = m_file->tell();
-    t->deserialize(m_file);
+    *m_file >> *t;
     t->m_sid = rval;
 }
 
@@ -242,7 +242,7 @@ void db::fetch(object* t, id i) {
     assert(t);
     long p = m_file->tell();
     if (p != i) m_file->seek(i, SEEK_SET);
-    t->deserialize(m_file);
+    *m_file >> *t;
     if (p != m_file->tell()) m_file->seek(p, SEEK_SET);
     t->m_sid = i;
 }
@@ -250,7 +250,7 @@ void db::fetch(object* t, id i) {
 void db::refer(id sid) {
     assert(m_file);
     assert(sid < m_file->tell());
-    varint(m_file->tell() - sid).serialize(m_file);
+    *m_file << varint(m_file->tell() - sid);
 }
 
 void db::refer(object* t) {
@@ -258,7 +258,7 @@ void db::refer(object* t) {
     assert(t);
     assert(t->m_sid != unknownid);
     assert(t->m_sid < m_file->tell());
-    varint(m_file->tell() - t->m_sid).serialize(m_file);
+    *m_file << varint(m_file->tell() - t->m_sid);
 }
 
 void db::refer(const uint256& hash) {
@@ -312,7 +312,7 @@ void db::refer(object** ts, size_t sz) {
     // TODO: binomial encoding etc
     id refpoint = m_file->tell();
     for (id i = 0; i < known; ++i) {
-        varint(refpoint - ts[klist[i]]->m_sid).serialize(m_file);
+        *m_file << varint(refpoint - ts[klist[i]]->m_sid);
     }
     // write unknown object refs
     for (id i = 0; i < sz; ++i) {
