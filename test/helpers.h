@@ -246,12 +246,12 @@ public:
     virtual void cluster_write_forward_index(cq::id cluster, cq::file* file) override {
         REQUIRE(file->get_path() == cluster_path(cluster));
         REQUIRE(m_fwd.index_id == cluster);
-        m_fwd.serialize(file);
+        *file << m_fwd;
     }
 
     virtual void cluster_read_forward_index(cq::id cluster, cq::file* file) override {
         REQUIRE(file->get_path() == cluster_path(cluster));
-        m_fwd.deserialize(file);
+        *file >> m_fwd;
         REQUIRE(m_fwd.index_id == cluster);
     }
 
@@ -261,14 +261,14 @@ public:
 
     virtual void cluster_read_back_index(cq::id cluster, cq::file* file) override {
         REQUIRE(file->get_path() == cluster_path(cluster));
-        m_bk.deserialize(file);
+        *file >> m_bk;
         REQUIRE(m_bk.index_id == cluster);
     }
 
     virtual void cluster_clear_and_write_back_index(cq::id cluster, cq::file* file) override {
         REQUIRE(file->get_path() == cluster_path(cluster));
         m_bk.index_id = cluster;
-        m_bk.serialize(file);
+        *file << m_bk;
     }
 
     virtual bool cluster_iterate(cq::id cluster, cq::file* file) override {

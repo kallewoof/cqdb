@@ -262,6 +262,7 @@ public:
     long m_current_time;
     std::map<id, std::shared_ptr<T>> m_dictionary;
     std::map<uint256, id> m_references;
+    inline std::shared_ptr<T> tretch(const uint256& hash) { return m_references.count(hash) ? m_dictionary.at(m_references.at(hash)) : nullptr; }
 
     chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024)
     : m_current_time(0)

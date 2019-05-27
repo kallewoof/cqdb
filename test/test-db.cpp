@@ -38,7 +38,7 @@ TEST_CASE("Header", "[header]") {
     SECTION("empty") {
         cq::header hdr(255, 1557791681, 0);
         cq::chv_stream stm;
-        hdr.serialize(&stm);
+        stm << hdr;
         stm.seek(0, SEEK_SET);
         cq::header hdr2(0, &stm);
         REQUIRE(0 == hdr2.get_segment_count());
@@ -52,7 +52,7 @@ TEST_CASE("Header", "[header]") {
         REQUIRE(1 == hdr.get_segment_count());
         REQUIRE(2 == hdr.get_segment_position(1));
         cq::chv_stream stm;
-        hdr.serialize(&stm);
+        stm << hdr;
         stm.seek(0, SEEK_SET);
         cq::header hdr2(0, &stm);
         REQUIRE(1 == hdr2.get_segment_count());
@@ -67,7 +67,7 @@ TEST_CASE("Header", "[header]") {
         REQUIRE(2 == hdr.get_segment_position(1));
         REQUIRE(3 == hdr.get_segment_position(999999));
         cq::chv_stream stm;
-        hdr.serialize(&stm);
+        stm << hdr;
         stm.seek(0, SEEK_SET);
         cq::header hdr2(0, &stm);
         REQUIRE(2 == hdr2.get_segment_count());
@@ -82,12 +82,12 @@ TEST_CASE("Registry", "[registry]") {
         cq::registry empty(&regdel, "/tmp/cq-reg", "reg", 2016);
         REQUIRE(empty.get_clusters().size() == 0);
         cq::chv_stream stream;
-        empty.serialize(&stream);
+        stream << empty;
         // should be able to serialize above registry in 6 bytes (size (1) + cluster size (4) + tip (1))
         REQUIRE(stream.tell() == 6);
         cq::registry reg2(&regdel, "/tmp/cq-reg", "reg");
         stream.seek(0, SEEK_SET);
-        reg2.deserialize(&stream);
+        stream >> reg2;
         REQUIRE(empty == reg2);
     }
 
@@ -96,12 +96,12 @@ TEST_CASE("Registry", "[registry]") {
         one.prepare_cluster_for_segment(1 * 2016);
         REQUIRE(one.get_clusters().size() == 1);
         cq::chv_stream stream;
-        one.serialize(&stream);
+        stream << one;
         // should be able to serialize above registry in 7 bytes (size (1) + entry (1) + cluster size (4) + tip (1))
         REQUIRE(stream.tell() == 7);
         cq::registry reg2(&regdel, "/tmp/cq-reg", "reg");
         stream.seek(0, SEEK_SET);
-        reg2.deserialize(&stream);
+        stream >> reg2;
         REQUIRE(one == reg2);
     }
 
@@ -111,13 +111,13 @@ TEST_CASE("Registry", "[registry]") {
         reg.prepare_cluster_for_segment(128 * 2016);
         REQUIRE(reg.get_clusters().size() == 2);
         cq::chv_stream stream;
-        reg.serialize(&stream);
+        stream << reg;
         // should be able to serialize above registry in 8 bytes (size (1) + entries (1 + 1) + cluster size (4) + tip (1))
         // note that entry 2 is 128, but relative, so 127
         REQUIRE(stream.tell() == 8);
         cq::registry reg2(&regdel, "/tmp/cq-reg", "reg");
         stream.seek(0, SEEK_SET);
-        reg2.deserialize(&stream);
+        stream >> reg2;
         REQUIRE(reg == reg2);
     }
 
@@ -129,14 +129,14 @@ TEST_CASE("Registry", "[registry]") {
         REQUIRE(reg.prepare_cluster_for_segment(2016) == 1);
         REQUIRE(reg.get_clusters().size() == 2);
         cq::chv_stream stream;
-        reg.serialize(&stream);
+        stream << reg;
         // should be able to serialize above registry in 8 bytes (size (1) + entries (1 + 1) + cluster size (4) + tip (1))
         // why 1 + 1 despite 2015? because we are storing the *cluster numbers* not the segment ids, i.e. 0 and 1 not 2015 and 2016
         // why 1 for tip, despite it being 2016? because tip is serialized as (tip - cluster * cluster_size) i.e. (2016 - 1 * 2016) = 0, here
         REQUIRE(stream.tell() == 8);
         cq::registry reg2(&regdel, "/tmp/cq-reg", "reg");
         stream.seek(0, SEEK_SET);
-        reg2.deserialize(&stream);
+        stream >> reg2;
         REQUIRE(reg == reg2);
     }
 }

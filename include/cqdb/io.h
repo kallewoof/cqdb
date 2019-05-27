@@ -25,6 +25,14 @@ typedef uint64_t id;
 constexpr id nullid = 0xffffffffffffffff;
 #define PRIid PRIu64
 
+template<typename T, typename Stream> void serialize(Stream& stm, const std::vector<T>& vec);
+template<typename T, typename Stream> void deserialize(Stream& stm, std::vector<T>& vec);
+
+#define S(T) \
+    template<typename Stream> void serialize(Stream& stm, T t) { stm.w(t); } \
+    template<typename Stream> void deserialize(Stream& stm, T& t) { stm.r(t); }
+S(uint8_t); S(uint16_t); S(uint32_t); S(uint64_t); S(int8_t); S(int16_t); S(int32_t); S(int64_t);
+
 class serializer {
 public:
     virtual ~serializer() {}
@@ -40,14 +48,15 @@ public:
     // bitcoin core compatibility
     inline size_t write(const char* data, size_t len) { return write((const uint8_t*)data, len); }
     inline size_t read(char* data, size_t len) { return read((uint8_t*)data, len); }
+    virtual int GetVersion() const { return 0; }
 
     template<typename T> inline size_t w(const T& data) { return write((const uint8_t*)&data, sizeof(T)); }
     template<typename T> inline size_t r(T& data)        { return read((uint8_t*)&data, sizeof(T)); }
 
-    template<typename T> serializer& operator<<(const std::vector<T>& vec);
-    template<typename T> serializer& operator>>(std::vector<T>& vec);
-    template<typename T> serializer& operator<<(const T& obj) { static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be serialized as is; call .serialize()"); if (sizeof(T) != w(obj)) throw fs_error("failed serialization"); return *this; }
-    template<typename T> serializer& operator>>(T& obj) { static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be deserialized as is; call .deserialize()"); if (sizeof(T) != r(obj)) throw fs_error("failed deserialization"); return *this; }
+    template<typename T> serializer& operator<<(const T& obj) { serialize(*this, obj); return *this; }
+    //static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be serialized as is; call .serialize()"); if (sizeof(T) != w(obj)) throw fs_error("failed serialization"); return *this; }
+    template<typename T> serializer& operator>>(T& obj) { deserialize(*this, obj); return *this; }
+    // static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be deserialized as is; call .deserialize()"); if (sizeof(T) != r(obj)) throw fs_error("failed deserialization"); return *this; }
 
     virtual std::string to_string() const { return "?"; }
 };
@@ -83,17 +92,21 @@ struct varint : public serializable {
     static inline id load(serializer* s) { varint v(s); return v.m_value; }
 };
 
-template<typename T> serializer& serializer::operator<<(const std::vector<T>& vec) {
-    varint(vec.size()).serialize(this);
-    for (const T& v : vec) operator<<(v);
-    return *this;
+template<typename T, typename Stream> void serialize(Stream& stm, const std::vector<T>& vec) {
+    varint(vec.size()).serialize(&stm);
+    for (const T& v : vec) serialize(stm, v);
 }
 
-template<typename T> serializer& serializer::operator>>(std::vector<T>& vec) {
-    vec.resize(varint::load(this));
-    for (size_t i = 0; i < vec.size(); ++i) operator>>(vec[i]);
-    return *this;
+template<typename T, typename Stream> void deserialize(Stream& stm, std::vector<T>& vec) {
+    vec.resize(varint::load(&stm));
+    for (size_t i = 0; i < vec.size(); ++i) deserialize(stm, vec[i]);
 }
+
+template<typename Stream> void serialize(Stream& stm, const serializable* ob) { ob->serialize(&stm); }
+template<typename Stream> void deserialize(Stream& stm, serializable* ob)     { ob->deserialize(&stm); }
+
+template<typename T, typename Stream> void serialize(Stream& stm, const T& ob) { ob.serialize(&stm); }
+template<typename T, typename Stream> void deserialize(Stream& stm, T& ob)     { ob.deserialize(&stm); }
 
 struct conditional : public varint {
     using varint::varint;
@@ -207,6 +220,7 @@ public:
     void seek(long offset, int whence) override;
     long tell() override;
     void clear() { m_chv.clear(); m_tell = 0; }
+    std::vector<uint8_t>& get_chv() { return m_chv; }
     std::string to_string() const override {
         char rv[(m_chv.size() << 1) + 1];
         char* rvp = rv;

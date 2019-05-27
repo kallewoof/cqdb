@@ -315,15 +315,15 @@ TEST_CASE("Incmaps", "[incmaps]") {
         cq::incmap refmap;
         // it should be possible to store the above refmap in 1 byte: size (1)
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(1 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         REQUIRE(refmap == refmap2);
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
     }
 
@@ -332,17 +332,17 @@ TEST_CASE("Incmaps", "[incmaps]") {
         refmap.m[1] = 2;
         // it should be possible to store the above refmap in 3 bytes: size (1), left value (1), right value (1)
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(3 == stream.tell());
         REQUIRE(stream.to_string() == "010102");
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         REQUIRE(1 == refmap2.m.count(1));
         REQUIRE(2 == refmap2.m.at(1));
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
         REQUIRE(refmap == refmap2);
     }
@@ -352,16 +352,16 @@ TEST_CASE("Incmaps", "[incmaps]") {
         refmap.m[2113662] = 2;
         // it should be possible to store the above refmap in 5 bytes: size (1), key (3), value (1)
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(5 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         REQUIRE(1 == refmap2.m.count(2113662));
         REQUIRE(2 == refmap2.m.at(2113662));
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
         REQUIRE(refmap == refmap2);
     }
@@ -371,16 +371,16 @@ TEST_CASE("Incmaps", "[incmaps]") {
         refmap.m[1] = 2113662;
         // it should be possible to store the above refmap in 5 bytes: size (1), key (1), value (3)
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(5 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         REQUIRE(1 == refmap2.m.count(1));
         REQUIRE(2113662 == refmap2.m.at(1));
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
         REQUIRE(refmap == refmap2);
     }
@@ -390,16 +390,16 @@ TEST_CASE("Incmaps", "[incmaps]") {
         refmap.m[2113662] = 2113663;
         // it should be possible to store the above refmap in 7 bytes: size (1), left value (3), right value (3)
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(7 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         REQUIRE(1 == refmap2.m.count(2113662));
         REQUIRE(2113663 == refmap2.m.at(2113662));
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
         REQUIRE(refmap == refmap2);
     }
@@ -410,14 +410,14 @@ TEST_CASE("Incmaps", "[incmaps]") {
         refmap.m[3] = 4;
         // it should be possible to store the above refmap in 5 bytes: size (1), left values (1, 1), right values (1, 1)
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(5 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
         REQUIRE(refmap == refmap2);
     }
@@ -428,14 +428,14 @@ TEST_CASE("Incmaps", "[incmaps]") {
         refmap.m[2113662] = 2113663;
         // it should be possible to store the above refmap in 9 bytes: size (1), left values (1, 3), right values (1, 3)
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(9 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
         REQUIRE(refmap == refmap2);
     }
@@ -449,14 +449,14 @@ TEST_CASE("Incmaps", "[incmaps]") {
         }
         // it should be possible to store the above refmap in 1 + 2 * 3 + 9 * 2 = 25 bytes
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(25 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
         REQUIRE(refmap == refmap2);
     }
@@ -480,14 +480,14 @@ TEST_CASE("Incmaps", "[incmaps]") {
         // -/-                  10*2 bytes
         // i.e. 1 + 6 + 20 + 6 + 20 = 53 bytes
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(53 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
         REQUIRE(refmap == refmap2);
     }
@@ -500,14 +500,14 @@ TEST_CASE("Incmaps", "[incmaps]") {
         }
         // it should be possible to store the above refmap in 602 bytes (size=2, then each keypair as 2 bytes)
         cq::chv_stream stream;
-        refmap.serialize(&stream);
+        stream << refmap;
         REQUIRE(602 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::incmap refmap2;
-        refmap2.deserialize(&stream);
+        stream >> refmap2;
         cq::chv_stream stream2;
-        refmap2.serialize(&stream2);
+        stream2 << refmap2;
         REQUIRE(stream.to_string() == stream2.to_string());
         REQUIRE(refmap == refmap2);
     }
@@ -518,15 +518,15 @@ TEST_CASE("Unordered set", "[unordered_set]") {
         cq::unordered_set set;
         // it should be possible to store the above set in 1 byte: size (1)
         cq::chv_stream stream;
-        set.serialize(&stream);
+        stream << set;
         REQUIRE(1 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::unordered_set set2;
-        set2.deserialize(&stream);
+        stream >> set2;
         REQUIRE(set == set2);
         cq::chv_stream stream2;
-        set2.serialize(&stream2);
+        stream2 << set2;
         REQUIRE(stream.to_string() == stream2.to_string());
     }
 
@@ -535,15 +535,15 @@ TEST_CASE("Unordered set", "[unordered_set]") {
         set.m.insert(1);
         // it should be possible to store the above set in 2 bytes: size (1), value (1)
         cq::chv_stream stream;
-        set.serialize(&stream);
+        stream << set;
         REQUIRE(2 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::unordered_set set2;
-        set2.deserialize(&stream);
+        stream >> set2;
         REQUIRE(set == set2);
         cq::chv_stream stream2;
-        set2.serialize(&stream2);
+        stream2 << set2;
         REQUIRE(stream.to_string() == stream2.to_string());
     }
 
@@ -552,15 +552,15 @@ TEST_CASE("Unordered set", "[unordered_set]") {
         set.m.insert(2113662);
         // it should be possible to store the above set in 4 bytes: size (1), value (3)
         cq::chv_stream stream;
-        set.serialize(&stream);
+        stream << set;
         REQUIRE(4 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::unordered_set set2;
-        set2.deserialize(&stream);
+        stream >> set2;
         REQUIRE(set == set2);
         cq::chv_stream stream2;
-        set2.serialize(&stream2);
+        stream2 << set2;
         REQUIRE(stream.to_string() == stream2.to_string());
     }
 
@@ -570,15 +570,15 @@ TEST_CASE("Unordered set", "[unordered_set]") {
         set.m.insert(2113663);
         // it should be possible to store the above set in 5 bytes: size (1), first value (3), second value (1)
         cq::chv_stream stream;
-        set.serialize(&stream);
+        stream << set;
         REQUIRE(5 == stream.tell());
         stream.seek(0, SEEK_SET);
         // deserializing should produce an identical refmap
         cq::unordered_set set2;
-        set2.deserialize(&stream);
+        stream >> set2;
         REQUIRE(set == set2);
         cq::chv_stream stream2;
-        set2.serialize(&stream2);
+        stream2 << set2;
         REQUIRE(stream.to_string() == stream2.to_string());
     }
 

@@ -29,7 +29,7 @@ TEST_CASE("Time relative", "[timerel]") {
         using cq::varint;
         cq::chv_stream stream;
         for (long relative_time = 3; relative_time < 128 /* 2 byte varint */; ++relative_time) {
-            varint(relative_time - 3).serialize(&stream);
+            stream << varint(relative_time - 3);
         }
         long m_current_time = 0;
         long expected_time = 0;
