@@ -325,8 +325,8 @@ bool mkdir(const std::string& path)
     int rv =
 #ifdef _WIN32
     ::_mkdir(path.c_str());
-#elif _POSIX_C_SOURCE
-    ::mkdir(path.c_str());
+// #elif _POSIX_C_SOURCE
+//     ::mkdir(path.c_str());
 #else
     ::mkdir(path.c_str(), 0755);
 #endif
