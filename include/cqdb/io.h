@@ -96,8 +96,8 @@ struct sizer : public serializer {
 };
 
 #define prepare_for_serialization() \
-    virtual void serialize(serializer* stream) const override; \
-    virtual void deserialize(serializer* stream) override
+    virtual void serialize(::cq::serializer* stream) const override; \
+    virtual void deserialize(::cq::serializer* stream) override
 
 struct varint : public serializable {
     id m_value;
