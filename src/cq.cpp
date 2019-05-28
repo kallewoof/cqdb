@@ -25,10 +25,10 @@ void header::reset(uint8_t version, uint64_t timestamp, id cluster) {
 }
 
 header::header(id cluster, serializer* stream) : m_cluster(cluster) {
-    Deserialize(stream);
+    deserialize(stream);
 }
 
-void header::Serialize(serializer* stream) const {
+void header::serialize(serializer* stream) const {
     // MAGIC
     char magic[2];
     magic[0] = 'C'; magic[1] = 'Q';
@@ -41,7 +41,7 @@ void header::Serialize(serializer* stream) const {
     *stream << m_segments;
 }
 
-void header::Deserialize(serializer* stream) {
+void header::deserialize(serializer* stream) {
     // MAGIC
     char magic[2];
     stream->read(magic, 2);
@@ -90,7 +90,7 @@ id registry::prepare_cluster_for_segment(id segment) {
     return segment / m_cluster_size;
 }
 
-void registry::Serialize(serializer* stream) const {
+void registry::serialize(serializer* stream) const {
     // CLUSTER SIZE
     *stream << m_cluster_size;
     // CLUSTERS
@@ -101,7 +101,7 @@ void registry::Serialize(serializer* stream) const {
     *stream << varint(m_tip - sub);
 }
 
-void registry::Deserialize(serializer* stream) {
+void registry::deserialize(serializer* stream) {
     // CLUSTER SIZE
     *stream >> m_cluster_size;
     // CLUSTERS

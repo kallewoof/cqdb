@@ -209,7 +209,7 @@ inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6)
 #define _write_time(rel, current_time, write_time) do { \
         if (time_rel_value(rel) > 2) { \
             uint64_t tfull = uint64_t(write_time - time_rel_value(rel) - current_time); \
-            varint(tfull).Serialize(m_file); \
+            varint(tfull).serialize(m_file); \
             current_time = write_time; \
         } else { \
             current_time += time_rel_value(rel);\

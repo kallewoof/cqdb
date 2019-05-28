@@ -209,7 +209,7 @@ TEST_CASE("Varints", "[varints]") {
             cq::varint v(i);
             REQUIRE(len == cq::sizer(&v).tell());
             cq::chv_stream stream;
-            v.Serialize(&stream);
+            v.serialize(&stream);
             REQUIRE(stream.to_string() == s);
         }
         // 1 byte: 0b00000000 [0] ~ 0b01111111 [127]
@@ -217,7 +217,7 @@ TEST_CASE("Varints", "[varints]") {
             cq::varint v(i);
             REQUIRE(1 == cq::sizer(&v).tell());
             cq::chv_stream stream;
-            v.Serialize(&stream);
+            v.serialize(&stream);
             char buf[15];
             sprintf(buf, "%02llx", i);
             REQUIRE(stream.to_string() == buf);
@@ -228,7 +228,7 @@ TEST_CASE("Varints", "[varints]") {
             REQUIRE(2 == cq::sizer(&v).tell());
 
             cq::chv_stream stream;
-            v.Serialize(&stream);
+            v.serialize(&stream);
             // we know we can't fit i into 1 byte because it is > 127; we also know it is represented in big endian order,
             // i.e. 0x0011 (for byte 00 and byte 11), except byte 0 has a reserved bit for "has next byte", so:
             // 0b1                  "has another byte"
@@ -249,7 +249,7 @@ TEST_CASE("Varints", "[varints]") {
             REQUIRE(3 == cq::sizer(&v).tell());
 
             cq::chv_stream stream;
-            v.Serialize(&stream);
+            v.serialize(&stream);
             uint64_t n = i;
             uint8_t byte2 = n & 0x7f;           n = (n >> 7) - 1;
             uint8_t byte1 = 0x80 | (n & 0x7f);  n = (n >> 7) - 1;
@@ -658,7 +658,7 @@ TEST_CASE("Clusters", "[clusters]") {
         c->resume_writing();
         *c << u32;
         c->w(u64);
-        cq::varint(strlen(string)).Serialize(c.get());
+        cq::varint(strlen(string)).serialize(c.get());
         c->write((const uint8_t*)string, strlen(string));
         REQUIRE(c->tell() == sizeof(u32) + sizeof(u64) + 1 + strlen(string));
     }
@@ -672,7 +672,7 @@ TEST_CASE("Clusters", "[clusters]") {
             c->resume_writing();
             *c << u32;
             c->w(u64);
-            cq::varint(strlen(string)).Serialize(c.get());
+            cq::varint(strlen(string)).serialize(c.get());
             c->write((const uint8_t*)string, strlen(string));
             REQUIRE(c->tell() == sizeof(u32) + sizeof(u64) + 1 + strlen(string));
         }
@@ -704,7 +704,7 @@ TEST_CASE("Clusters", "[clusters]") {
             c->w(u64);
             *cd += 1;
             c->resume_writing();
-            cq::varint(strlen(string)).Serialize(c.get());
+            cq::varint(strlen(string)).serialize(c.get());
             c->write((const uint8_t*)string, strlen(string));
             REQUIRE(c->tell() == 1 + strlen(string));
         }
@@ -796,7 +796,7 @@ TEST_CASE("Indexed clusters", "[indexed-clusters]") {
         c->m_ic.resume_writing();
         c->m_ic << u32;
         c->m_ic.w(u64);
-        cq::varint(strlen(string)).Serialize(&c->m_ic);
+        cq::varint(strlen(string)).serialize(&c->m_ic);
         c->m_ic.write((const uint8_t*)string, strlen(string));
         REQUIRE(c->m_ic.tell() == sizeof(cq::id) + sizeof(u32) + sizeof(u64) + 1 + strlen(string));
     }
@@ -810,7 +810,7 @@ TEST_CASE("Indexed clusters", "[indexed-clusters]") {
             c->m_ic.resume_writing();
             c->m_ic << u32;
             c->m_ic.w(u64);
-            cq::varint(strlen(string)).Serialize(&c->m_ic);
+            cq::varint(strlen(string)).serialize(&c->m_ic);
             c->m_ic.write((const uint8_t*)string, strlen(string));
             REQUIRE(c->m_ic.tell() == sizeof(cq::id) + sizeof(u32) + sizeof(u64) + 1 + strlen(string));
         }
@@ -842,7 +842,7 @@ TEST_CASE("Indexed clusters", "[indexed-clusters]") {
             c->m_ic.w(u64);
             *cd += 1;
             c->m_ic.resume_writing();
-            cq::varint(strlen(string)).Serialize(&c->m_ic);
+            cq::varint(strlen(string)).serialize(&c->m_ic);
             c->m_ic.write((const uint8_t*)string, strlen(string));
             REQUIRE(c->m_ic.tell() == sizeof(cq::id) + 1 + strlen(string));
         }

@@ -27,7 +27,7 @@ uint8_t serializer::get_uint8() {
     throw fs_error(eof() ? "end of file" : "error reading from disk");
 }
 
-void varint::Serialize(serializer* stream) const {
+void varint::serialize(serializer* stream) const {
     int nel = (sizeof(id)*8+6)/7;
     int marker = nel;
     unsigned char tmp[nel];
@@ -41,24 +41,24 @@ void varint::Serialize(serializer* stream) const {
     stream->write(&tmp[nel], marker - nel);
 }
 
-void varint::Deserialize(serializer* stream) {
+void varint::deserialize(serializer* stream) {
     m_value = 0;
     while(true) {
         uint8_t chData = stream->get_uint8();
         if (m_value > (std::numeric_limits<id>::max() >> 7)) {
-           throw io_error("varint::Deserialize(): size too large");
+           throw io_error("varint::deserialize(): size too large");
         }
         m_value = (m_value << 7) | (chData & 0x7F);
         if (chData & 0x80) {
             if (m_value == std::numeric_limits<id>::max()) {
-                throw io_error("varint::Deserialize(): size too large");
+                throw io_error("varint::deserialize(): size too large");
             }
             m_value++;
         } else return;
     }
 }
 
-void incmap::Serialize(serializer* stream) const {
+void incmap::serialize(serializer* stream) const {
     // VARINT : number of entries
     *stream << varint((id)(m.size()));
     // serialize as varints equal to the diff with the previous element
@@ -80,7 +80,7 @@ void incmap::Serialize(serializer* stream) const {
     }
 }
 
-void incmap::Deserialize(serializer* stream) {
+void incmap::deserialize(serializer* stream) {
     // VARINT : number of entries
     id size = varint::load(stream);
     // deserialize as varints equal to the diff with the previous element
@@ -102,7 +102,7 @@ bool incmap::operator==(const incmap& other) const {
     // return true;
 }
 
-void unordered_set::Serialize(serializer* stream) const {
+void unordered_set::serialize(serializer* stream) const {
     // VARINT : number of entries
     *stream << varint((id)(m.size()));
     // serialize as varints equal to the diff with the previous element
@@ -117,7 +117,7 @@ void unordered_set::Serialize(serializer* stream) const {
     }
 }
 
-void unordered_set::Deserialize(serializer* stream) {
+void unordered_set::deserialize(serializer* stream) {
     // VARINT : number of entries
     id size = varint::load(stream);
     // deserialize as varints equal to the diff with the previous element

@@ -78,15 +78,15 @@ public:
 
 class serializable {
 public:
-    virtual void Serialize(serializer* stream) const =0;
-    virtual void Deserialize(serializer* stream) =0;
+    virtual void serialize(serializer* stream) const =0;
+    virtual void deserialize(serializer* stream) =0;
 };
 
 struct sizer : public serializer {
     size_t m_len{0};
     sizer() {}
     sizer(serializable* s) {
-        s->Serialize(this);
+        s->serialize(this);
     }
     size_t write(const uint8_t* data, size_t len) override { m_len += len; return len; }
     size_t read(uint8_t* data, size_t len) override { m_len += len; return len; }
@@ -96,19 +96,19 @@ struct sizer : public serializer {
 };
 
 #define prepare_for_serialization() \
-    virtual void Serialize(cq::serializer* stream) const override; \
-    virtual void Deserialize(cq::serializer* stream) override
+    virtual void serialize(serializer* stream) const override; \
+    virtual void deserialize(serializer* stream) override
 
 struct varint : public serializable {
     id m_value;
     explicit varint(id value = 0) : m_value(value) {}
-    explicit varint(serializer* s) { Deserialize(s); }
+    explicit varint(serializer* s) { deserialize(s); }
     prepare_for_serialization();
     static inline id load(serializer* s) { varint v(s); return v.m_value; }
 };
 
 template<typename T, typename Stream> void serialize(Stream& stm, const std::vector<T>& vec) {
-    varint(vec.size()).Serialize(&stm);
+    varint(vec.size()).serialize(&stm);
     for (const T& v : vec) serialize(stm, v);
 }
 
@@ -117,11 +117,11 @@ template<typename T, typename Stream> void deserialize(Stream& stm, std::vector<
     for (size_t i = 0; i < vec.size(); ++i) deserialize(stm, vec[i]);
 }
 
-template<typename Stream> void serialize(Stream& stm, const serializable* ob) { ob->Serialize(&stm); }
-template<typename Stream> void deserialize(Stream& stm, serializable* ob)     { ob->Deserialize(&stm); }
+template<typename Stream> void serialize(Stream& stm, const serializable* ob) { ob->serialize(stm); }
+template<typename Stream> void deserialize(Stream& stm, serializable* ob)     { ob->deserialize(stm); }
 
-template<typename T, typename Stream> void serialize(Stream& stm, const T& ob) { ob.Serialize(&stm); }
-template<typename T, typename Stream> void deserialize(Stream& stm, T& ob)     { ob.Deserialize(&stm); }
+template<typename T, typename Stream> void serialize(Stream& stm, const T& ob) { ob.serialize(&stm); }
+template<typename T, typename Stream> void deserialize(Stream& stm, T& ob)     { ob.deserialize(&stm); }
 
 struct conditional : public varint {
     using varint::varint;
@@ -151,7 +151,7 @@ public:
     void cond_serialize(serializer* stream) const override {
         if (m_value >= CAP) {
             const_cast<cond_varint*>(this)->m_value -= CAP;
-            varint::Serialize(stream);
+            varint::serialize(stream);
             const_cast<cond_varint*>(this)->m_value += CAP;
         }
     }
@@ -159,16 +159,16 @@ public:
         if (val < CAP) {
             m_value = val;
         } else {
-            varint::Deserialize(stream);
+            varint::deserialize(stream);
             m_value += CAP;
         }
     }
-    void Serialize(serializer* stream) const override {
+    void serialize(serializer* stream) const override {
         uint8_t val = m_value < CAP ? m_value : CAP;
         stream->w(val);
         cond_serialize(stream);
     }
-    void Deserialize(serializer* stream) override {
+    void deserialize(serializer* stream) override {
         uint8_t val;
         stream->r(val);
         cond_deserialize(val, stream);
