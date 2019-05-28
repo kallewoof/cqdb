@@ -601,6 +601,122 @@ TEST_CASE("Unordered set", "[unordered_set]") {
     }
 }
 
+TEST_CASE("Bitfields", "[bitfields]") {
+    using cq::bitfield;
+
+    // struct bitfield : public serializable {
+    //     uint8_t* m_data;
+    //     #define S(b) m_data[(b>>3)] |= (b & 7)    // set
+    //     #define U(b) m_data[(b>>3)] &= !(b & 7)   // unset
+    //     #define G(b) (m_data[(b>>3)] & (b & 7))   // get
+
+    //     size_t m_cap;
+    //     bitfield(uint32_t cap) {
+    //         m_cap = (cap + 7) >> 3;
+    //         m_data = (uint8_t*)malloc(m_cap);
+    //         m_data[m_cap - 1] = 0; // avoid random bits in out of bounds area, as even if user sets/unsets all cap bits, there may be some extraneous bits in the final byte
+    //     }
+
+    SECTION("construction") {
+        {
+            bitfield bf(1); // take 1 byte
+            REQUIRE(bf.m_cap == 1);
+            REQUIRE(bf.m_data != nullptr);
+        }
+        {
+            bitfield bf(8); // take 1 byte
+            REQUIRE(bf.m_cap == 1);
+        }
+        {
+            bitfield bf(9); // take 2 bytes
+            REQUIRE(bf.m_cap == 2);
+        }
+        {
+            bitfield bf(64); // 8 bytes
+            REQUIRE(bf.m_cap == 8);
+        }
+    }
+
+    //     inline bool operator[](size_t idx) const { return bool(G(idx)); }
+    //     inline void set(size_t idx) { S(idx); }
+    //     inline void unset(size_t idx) { U(idx); }
+
+    SECTION("setting/getting (single-byte)") {
+        bitfield bf(8);
+        bf.clear();
+
+        REQUIRE(!bf[0]);
+        REQUIRE(!bf[7]);
+        bf.set(0);
+        REQUIRE(bf[0]);
+        bf.unset(0);
+        REQUIRE(!bf[0]);
+
+        for (int i = 0; i < 8; ++i) {
+            bf.set(i);
+            for (int j = 0; j < 8; ++j) {
+                REQUIRE(bf[j] == (j == i));
+            }
+            bf.unset(i);
+        }
+        int bvs[] = {1, 2, 4, 8, 16, 32, 64, 128};
+        for (int i = 0; i < 8; ++i) {
+            bf.set(i);
+            for (int j = 0; j < 8; ++j) {
+                if (j == i) continue;
+                bf.set(j);
+                int expval = bvs[i] | bvs[j];
+                int gotval = 0;
+                for (int k = 0; k < 8; ++k) {
+                    gotval |= bvs[k] * bf[k];
+                }
+                REQUIRE(expval == gotval);
+                bf.unset(j);
+            }
+            bf.unset(i);
+        }
+    }
+
+    SECTION("setting/getting (multi-byte)") {
+        bitfield bf(16);
+        bf.clear();
+        for (int i = 0; i < 16; ++i) {
+            bf.set(i);
+            for (int j = 0; j < 16; ++j) {
+                REQUIRE(bf[j] == (j == i));
+            }
+            bf.unset(i);
+        }
+        int bvs[] = {
+            1,   2,   4,    8,    16,   32,   64,    128,
+            256, 512, 1024, 2048, 4096, 8192, 16384, 32768
+        };
+        for (int i = 0; i < 16; ++i) {
+            bf.set(i);
+            for (int j = 0; j < 16; ++j) {
+                if (j == i) continue;
+                bf.set(j);
+                int expval = bvs[i] | bvs[j];
+                int gotval = 0;
+                for (int k = 0; k < 16; ++k) {
+                    gotval |= bvs[k] * bf[k];
+                }
+                REQUIRE(expval == gotval);
+                bf.unset(j);
+            }
+            bf.unset(i);
+        }
+    }
+
+    //     virtual void serialize(serializer* stream) const override { stream->write(m_data, m_cap); }
+    //     virtual void deserialize(serializer* stream) override     { stream->read(m_data, m_cap); }
+
+    //     #undef S
+    //     #undef U
+    //     #undef G
+    // };
+}
+
 TEST_CASE("Clusters", "[clusters]") {
     #define start(cd, c) auto ccd = new_cluster(); auto cd = ccd.first; auto c = ccd.second
 

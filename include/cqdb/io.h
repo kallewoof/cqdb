@@ -340,6 +340,31 @@ public:
     virtual void close() override;
 };
 
+struct bitfield : public serializable {
+    uint8_t* m_data;
+    #define S(b) m_data[(b>>3)] |=  (1 << (b & 7))    // set
+    #define U(b) m_data[(b>>3)] &= ~(1 << (b & 7))   // unset
+    #define G(b) (m_data[(b>>3)] & (1 << (b & 7)))   // get
+
+    size_t m_cap;
+    bitfield(uint32_t cap) {
+        if (cap == 0) cap = 1;
+        m_cap = (cap + 7) >> 3;
+        m_data = (uint8_t*)malloc(m_cap);
+        m_data[m_cap - 1] = 0; // avoid random bits in out of bounds area, as even if user sets/unsets all cap bits, there may be some extraneous bits in the final byte
+    }
+    inline void clear() { memset(m_data, 0, m_cap); }
+    inline bool operator[](size_t idx) const { return bool(G(idx)); }
+    inline void set(size_t idx) { S(idx); }
+    inline void unset(size_t idx) { U(idx); }
+    virtual void serialize(serializer* stream) const override { stream->write(m_data, m_cap); }
+    virtual void deserialize(serializer* stream) override     { stream->read(m_data, m_cap); }
+
+    #undef S
+    #undef U
+    #undef G
+};
+
 } // namespace cq
 
 #endif // included_cq_io_h_

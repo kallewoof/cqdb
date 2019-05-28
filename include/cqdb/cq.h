@@ -264,22 +264,18 @@ public:
     std::map<id, std::shared_ptr<T>> m_dictionary;
     std::map<uint256, id> m_references;
 
-    #define S(b) bitfield[(b>>3)] |= (b & 7)    // set
-    #define U(b) bitfield[(b>>3)] &= !(b & 7)   // unset
-    #define G(b) (bitfield[(b>>3)] & (b & 7))   // get
     virtual void compress(serializer* stm, const std::vector<uint256>& references) override {
         assert(stm == m_file);
         // generate known bit field
         size_t refs = references.size();
-        size_t refbfb = (refs + 7) >> 3;
-        uint8_t bitfield[refbfb];
-        for (size_t i = 0; i < refs; ++i) if (m_references.count(references[i])) S(i); else U(i);
+        bitfield bf(refs);
+        for (size_t i = 0; i < refs; ++i) if (m_references.count(references[i])) bf.set(i); else bf.unset(i);
         // length of vector as varint
         *m_file << varint(refs);
         // write bitfield
-        m_file->write(bitfield, refbfb);
+        *m_file << bf;
         for (size_t i = 0; i < refs; ++i) {
-            if (G(i)) {
+            if (bf[i]) {
                 *m_file << varint(m_file->tell() - m_references.at(references[i]));
             } else {
                 references[i].Serialize(*m_file);
@@ -303,12 +299,11 @@ public:
         // length of vector as varint
         size_t refs = varint::load(m_file);
         // fetch known bit field
-        size_t refbfb = (refs + 7) >> 3;
-        uint8_t bitfield[refbfb];
-        m_file->read(bitfield, refbfb);
+        bitfield bf(refs);
+        *m_file >> bf;
         uint256 u;
         for (size_t i = 0; i < refs; ++i) {
-            if (G(i)) {
+            if (bf[i]) {
                 references.push_back(m_dictionary.at(m_file->tell() - varint::load(m_file))->m_hash);
             } else {
                 u.Unserialize(*stm);
@@ -327,9 +322,6 @@ public:
             reference.Unserialize(*m_file);
         }
     }
-    #undef S
-    #undef U
-    #undef G
 
     inline std::shared_ptr<T> tretch(const uint256& hash) { return m_references.count(hash) ? m_dictionary.at(m_references.at(hash)) : nullptr; }
 
