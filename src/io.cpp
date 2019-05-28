@@ -139,7 +139,7 @@ file::file(const std::string& fname, bool readonly, bool clear) {
         m_fp = fopen(m_path.c_str(), readonly ? "rb" : "rb+");
     }
     if (!m_fp && !readonly) m_fp = fopen(m_path.c_str(), "wb+");
-    if (!m_fp) throw fs_error("cannot open file" + m_path);
+    if (!m_fp) throw fs_error("cannot open file " + m_path);
 }
 
 bool file::accessible(const std::string& fname) {
