@@ -379,8 +379,13 @@ bool listdir(const std::string& path, std::vector<std::string>& list)
     auto dirp = opendir(path.c_str());
     if (!dirp) return false;
     for (auto dp = readdir(dirp); dp; dp = readdir(dirp)) {
-        if (dp->d_name[0] == '.' && dp->d_namlen < 3 && (dp->d_namlen == 1 || dp->d_name[1] == '.')) continue;
-        list.emplace_back(dp->d_name, dp->d_name + dp->d_namlen);
+#ifdef _DIRENT_HAVE_D_NAMLEN
+#   define len dp->d_namlen
+#else
+        size_t len = strlen(dp->d_name);
+#endif
+        if (dp->d_name[0] == '.' && len < 3 && (len == 1 || dp->d_name[1] == '.')) continue;
+        list.emplace_back(dp->d_name, dp->d_name + len);
     }
     (void)closedir(dirp);
 #endif
