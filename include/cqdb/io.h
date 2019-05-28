@@ -22,6 +22,7 @@ bool rmfile(const std::string& path);
 bool listdir(const std::string& path, std::vector<std::string>& list);
 bool rmdir_r(const std::string& path);
 void randomize(void* dst, size_t bytes);
+long fsize(const std::string& path);
 
 typedef uint64_t id;
 constexpr id nullid = 0xffffffffffffffff;

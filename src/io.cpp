@@ -320,6 +320,16 @@ void indexed_cluster::open(id cluster, bool readonly, bool clear) {
 
 // helper fun
 
+long fsize(const std::string& path)
+{
+    FILE* fp = fopen(path.c_str(), "rb");
+    if (!fp) return -1;
+    fseek(fp, 0, SEEK_END);
+    long rv = ftell(fp);
+    fclose(fp);
+    return rv;
+}
+
 bool mkdir(const std::string& path)
 {
     int rv =
