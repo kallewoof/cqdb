@@ -356,14 +356,13 @@ void db::derefer(std::set<id>& known_out,  std::set<uint256>& unknown_out) {
 }
 
 void db::begin_segment(id segment_id) {
-    if (m_readonly) throw db_error("readonly database");
     if (segment_id < m_reg.m_tip) throw db_error("may not begin a segment < current tip");
     id new_cluster = m_reg.prepare_cluster_for_segment(segment_id);
     assert(m_reg.m_tip == segment_id || !m_file);
     bool write_reg = false;
     if (new_cluster != m_reg.m_current_cluster || !m_file) {
-        write_reg = true;
-        m_ic.open(new_cluster, false);
+        write_reg = !m_readonly;
+        m_ic.open(new_cluster, m_readonly);
     }
     m_reg.m_forward_index.mark_segment(segment_id, m_file->tell());
     if (write_reg) {

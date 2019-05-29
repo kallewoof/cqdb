@@ -302,9 +302,12 @@ void indexed_cluster::open(id cluster, bool readonly, bool clear) {
 
     if (readonly) {
         // 1. Read forward index. Open and read from cluster (x+1).
-        //    Must exist. Throws a fs_error if not found.
-        file forward_index(m_delegate->cluster_path(cluster + 1), true);
-        m_delegate->cluster_read_forward_index(cluster + 1, &forward_index);
+        if (file::accessible(m_delegate->cluster_path(cluster + 1))) {
+            file forward_index(m_delegate->cluster_path(cluster + 1), true);
+            m_delegate->cluster_read_forward_index(cluster + 1, &forward_index);
+        } else {
+            m_delegate->cluster_clear_forward_index(cluster + 1);
+        }
         // 2. Open cluster x. Read back index.
         m_cluster = cluster;
         m_file = new file(m_delegate->cluster_path(m_cluster), true);

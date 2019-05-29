@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 #include <cstdio>
+#include <inttypes.h> // PRIu64
 
 #include <cqdb/uint256.h>
 

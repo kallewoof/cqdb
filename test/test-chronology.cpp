@@ -218,6 +218,36 @@ TEST_CASE("chronology", "[chronology]") {
         }
     }
 
+    SECTION("pushing one no-subject event [high segment #]") {
+        long pos;
+        {
+            auto chron = new_chronology();
+            chron->begin_segment(500000);
+            pos = chron->m_file->tell();
+            chron->push_event(1557974775, cmd_nop);
+            chron->period();
+        }
+        {
+            auto chron = open_chronology();
+            chron->m_file->seek(pos, SEEK_SET);
+            chron->m_current_time = 0;
+            uint8_t cmd;
+            bool known;
+            auto pos1 = chron->m_ic.m_file->tell();
+            auto ctime = chron->m_current_time;
+            REQUIRE(chron->peek_time(ptime));
+            REQUIRE(pos1 == chron->m_ic.m_file->tell());
+            REQUIRE(ctime == chron->m_current_time);
+            REQUIRE(1557974775 == ptime);
+            REQUIRE(chron->pop_event(cmd, known));
+            REQUIRE(cmd_nop == cmd);
+            REQUIRE(chron->m_current_time == 1557974775);
+            // known is irrelevant here
+            REQUIRE(!chron->peek_time(ptime));
+            REQUIRE(!chron->pop_event(cmd, known));
+        }
+    }
+
     SECTION("pushing two no-subject events") {
         long pos;
         {

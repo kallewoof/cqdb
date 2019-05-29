@@ -527,9 +527,8 @@ public:
     virtual void begin_segment(id segment_id) override {
         db::begin_segment(segment_id);
         if (m_reflection) {
-            // must be manually updated as the forward index is assumed to not change from under you
-            m_reflection->m_reg.m_forward_index.mark_segment(segment_id, m_file/* yes, m_file! */->tell());
-            if (m_reflection->m_reg.m_tip < segment_id) m_reflection->m_reg.m_tip = segment_id;
+            flush();
+            m_reflection->begin_segment(segment_id);
         }
     }
 };
