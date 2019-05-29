@@ -34,7 +34,8 @@
 # Local
 .deps
 .dirstamp
-config
+include/cqdb/config.h*
+include/cqdb/stamp-h1
 config.log
 config.status
 configure
