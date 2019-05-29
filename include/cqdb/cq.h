@@ -1,9 +1,7 @@
 #ifndef included_cq_cq_h_
 #define included_cq_cq_h_
 
-#if defined(HAVE_CONFIG_H)
-#include <config/config.h>
-#endif
+#include <cqdb/config.h>
 
 #include <string>
 #include <map>

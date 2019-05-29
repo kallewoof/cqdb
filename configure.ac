@@ -10,7 +10,7 @@ define(_COPYRIGHT_HOLDERS,[The %s developers])
 define(_COPYRIGHT_HOLDERS_SUBSTITUTION,[[Bitcoin Core]])
 AC_INIT([Bitcoin Core],[_CLIENT_VERSION_MAJOR._CLIENT_VERSION_MINOR._CLIENT_VERSION_REVISION],[https://github.com/bitcoin/bitcoin/issues],[bitcoin],[https://bitcoincore.org/])
 AC_CONFIG_SRCDIR([src/cq.cpp])
-AC_CONFIG_HEADERS([config/config.h])
+AC_CONFIG_HEADERS([include/cqdb/config.h])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([build-aux/m4])
 

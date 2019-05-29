@@ -37,7 +37,7 @@ libcqdb_a_SOURCES = \
 libcqdb_a_CPPFLAGS = $(AM_CPPFLAGS) $(CQDB_INCLUDES)
 libcqdb_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 cqdbincludedir = $(includedir)/cqdb
-cqdbinclude_HEADERS = include/cqdb/cq.h include/cqdb/io.h include/cqdb/uint256.h include/cqdb/utilstrencodings.h
+cqdbinclude_HEADERS = include/cqdb/cq.h include/cqdb/io.h include/cqdb/uint256.h include/cqdb/utilstrencodings.h include/cqdb/config.h
 
 # test-cqdb binary #
 test_cqdb_SOURCES = \
