@@ -70,9 +70,7 @@ public:
     template<typename T> inline size_t r(T& data)        { return read((uint8_t*)&data, sizeof(T)); }
 
     template<typename T> serializer& operator<<(const T& obj) { serialize(*this, obj); return *this; }
-    //static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be serialized as is; call .serialize()"); if (sizeof(T) != w(obj)) throw fs_error("failed serialization"); return *this; }
     template<typename T> serializer& operator>>(T& obj) { deserialize(*this, obj); return *this; }
-    // static_assert(sizeof(T) < sizeof(void*), "non-primitive objects will be deserialized as is; call .deserialize()"); if (sizeof(T) != r(obj)) throw fs_error("failed deserialization"); return *this; }
 
     virtual std::string to_string() const { return "?"; }
 };
@@ -223,6 +221,7 @@ public:
     void flush() override { fflush(m_fp); }
     bool readonly() const { return m_readonly; }
     const std::string& get_path() const { return m_path; }
+    void reopen();
 };
 
 class chv_stream : public serializer {
@@ -262,17 +261,18 @@ public:
     id m_cluster{nullid};
     file* m_file;
     cluster_delegate* m_delegate;
-    cluster(cluster_delegate* delegate);
+    bool m_readonly;
+    cluster(cluster_delegate* delegate, bool readonly);
     ~cluster() override;
     virtual void open(id cluster, bool readonly, bool clear = false);
     virtual void close() {}
-    virtual void resume_writing(bool clear = false);
+    virtual void resume(bool clear = false); //!< iterate until the end of the cluster and, unless m_readonly is true, prepare to begin writing
     bool eof() override;
     size_t write(const uint8_t* data, size_t len) override;
     size_t read(uint8_t* data, size_t len) override;
     void seek(long offset, int whence) override;
     long tell() override;
-    void flush() override { m_file->flush(); }
+    virtual void flush() override { m_file->flush(); }
 };
 
 class indexed_cluster_delegate : public cluster_delegate {
@@ -334,16 +334,17 @@ public:
 class indexed_cluster final : public cluster {
 public:
     indexed_cluster_delegate* m_delegate;
-    indexed_cluster(indexed_cluster_delegate* delegate) : cluster(delegate) {
+    indexed_cluster(indexed_cluster_delegate* delegate, bool readonly) : cluster(delegate, readonly) {
         m_delegate = delegate;
     }
     void open(id cluster, bool readonly, bool clear = false) override;
     virtual void close() override;
+    virtual void flush() override;
 };
 
 struct bitfield : public serializable {
     uint8_t* m_data;
-    #define S(b) m_data[(b>>3)] |=  (1 << (b & 7))    // set
+    #define S(b) m_data[(b>>3)] |=  (1 << (b & 7))   // set
     #define U(b) m_data[(b>>3)] &= ~(1 << (b & 7))   // unset
     #define G(b) (m_data[(b>>3)] & (1 << (b & 7)))   // get
 

@@ -32,6 +32,7 @@ public:
     bool operator==(const object& other) const {
         return m_hash == other.m_hash;
     }
+    inline bool operator!=(const object& other) const { return !operator==(other); }
 };
 
 static const uint8_t HEADER_VERSION = 1;
@@ -52,6 +53,13 @@ public:
     void reset(uint8_t version, uint64_t timestamp, id cluster);
 
     prepare_for_serialization();
+
+    void adopt(const header& other) {
+        assert(m_version == other.m_version);
+        m_timestamp_start = other.m_timestamp_start;
+        m_segments = other.m_segments;
+        m_cluster = other.m_cluster;
+    }
 
     void mark_segment(id segment, id position);
     id get_segment_position(id segment) const;
@@ -107,6 +115,17 @@ public:
 
     prepare_for_serialization();
 
+    void adopt(const registry& other) {
+        assert(m_dbpath == other.m_dbpath);
+        assert(m_prefix == other.m_prefix);
+        assert(m_cluster_size == other.m_cluster_size);
+        m_clusters.m = other.m_clusters.m;
+        m_tip = other.m_tip;
+        m_forward_index.adopt(other.m_forward_index);
+        m_back_index.adopt(other.m_back_index);
+        m_current_cluster = other.m_current_cluster;
+    }
+
     // cluster delegation
     virtual id cluster_next(id cluster) override;
     virtual id cluster_last(bool open_for_writing) override;
@@ -132,21 +151,17 @@ protected:
     registry m_reg;
 
     void open(id cluster, bool readonly);
-    void resume();
-    virtual void prepare_for_writing() {
-        // seek to end
-        m_ic.resume_writing(false);
-        // m_file->seek(0, SEEK_END);
-    }
+    void reopen();
 
     void close();
+    bool m_readonly;
 
 public:
     file* m_file;
     indexed_cluster m_ic;
 
     // struction
-    db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024);
+    db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024, bool readonly = false);
     virtual ~db();
     void load();
 
@@ -181,13 +196,13 @@ public:
      * gaps. This will automatically jump to the {last file, end of file} position and
      * disable `readonly` flag, (re-)enabling all write operations.
      */
-    void begin_segment(id segment_id);
+    virtual void begin_segment(id segment_id);
 
     /**
      * Seek to the {file, position} for the given segment.
      * Enables `readonly` flag, disabling all write operations.
      */
-    void goto_segment(id segment_id);
+    virtual void goto_segment(id segment_id);
 
     void flush();
 };
@@ -252,17 +267,69 @@ inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6)
  */
 template<typename T>
 class chronology : public db, public compressor {
-protected:
-    void prepare_for_writing() override {
-        // we need to fetch all objects that we are meant to know about
-        // the only way to do this by default is to replay the file up to the end
-        while (registry_iterate(m_file));
-    }
-
 public:
     long m_current_time;
     std::map<id, std::shared_ptr<T>> m_dictionary;
     std::map<uint256, id> m_references;
+    std::shared_ptr<chronology> m_reflection; // debug tool used to assert that serialized data deserializes to itself
+
+    inline void enable_reflection(std::shared_ptr<chronology> reflection) {
+        if (!m_file) load();
+        if (!reflection->m_readonly) throw chronology_error("invalid reflection (must be readonly)");
+        if (reflection->m_dbpath != m_dbpath) throw chronology_error("invalid reflection (dbpath differs)");
+        if (reflection->m_prefix != m_prefix) throw chronology_error("invalid reflection (prefix differs)");
+        flush();
+        m_reflection = reflection;
+        m_reflection->m_reg.adopt(m_reg);
+        m_reflection->load();
+        assert(!m_reflection->m_file || m_reflection->m_file->readonly());
+    }
+
+    bool operator==(const chronology& other) const {
+        if (m_current_time != other.m_current_time) return false;
+        if (m_dictionary.size() != other.m_dictionary.size()) return false;
+        if (m_references.size() != other.m_references.size()) return false;
+        {
+            chv_stream reg1, reg2;
+            reg1 << m_reg; reg2 << other.m_reg;
+            const std::string s1 = reg1.to_string();
+            const std::string s2 = reg2.to_string();
+            if (s1 != s2) return false;
+        }
+        {
+            auto kv1 = m_dictionary.begin();        auto kv2 = other.m_dictionary.begin();
+            const auto& end1 = m_dictionary.end();  const auto& end2 = other.m_dictionary.end();
+            while (kv1 != end1 && kv2 != end2) {
+                if (kv1->first != kv2->first) return false;
+                if (*(kv1->second) != *(kv2->second)) return false;
+                ++kv1; ++kv2;
+            }
+        }
+        {
+            auto kv1 = m_references.begin();        auto kv2 = other.m_references.begin();
+            const auto& end1 = m_references.end();  const auto& end2 = other.m_references.end();
+            while (kv1 != end1 && kv2 != end2) {
+                if (kv1->first != kv2->first) return false;
+                if (kv1->second != kv2->second) return false;
+                ++kv1; ++kv2;
+            }
+        }
+        return true;
+    }
+    inline bool operator!=(const chronology& other) const { return !operator==(other); }
+
+    void period() {
+        if (!m_reflection) return;
+        assert(!m_reflection->m_file || m_reflection->m_file->readonly());
+        flush();
+        // fread will not realize there is more data in a file so we reopen
+        m_reflection->m_file->reopen();
+        while (m_reflection->registry_iterate(m_reflection->m_file));
+        if (*this != *m_reflection) {
+            operator==(*m_reflection);
+            throw chronology_error("reflection check failed");
+        }
+    }
 
     virtual void compress(serializer* stm, const std::vector<uint256>& references) override {
         assert(stm == m_file);
@@ -325,9 +392,10 @@ public:
 
     inline std::shared_ptr<T> tretch(const uint256& hash) { return m_references.count(hash) ? m_dictionary.at(m_references.at(hash)) : nullptr; }
 
-    chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024)
-    : m_current_time(0)
-    , db(dbpath, prefix, cluster_size)
+    chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024, bool readonly = false)
+    :   m_current_time(0)
+    ,   m_reflection(nullptr)
+    ,   db(dbpath, prefix, cluster_size, readonly)
     {}
 
     //////////////////////////////////////////////////////////////////////////////////////
@@ -392,9 +460,8 @@ public:
         uint8_t u8, timerel;
         while (m_file->readonly() && m_file->eof()) {
             auto next_cluster = m_reg.cluster_next(m_reg.m_current_cluster);
-            if (next_cluster != nullid) {
-                m_ic.open(next_cluster, true);
-            }
+            if (next_cluster == nullid) return false;
+            m_ic.open(next_cluster, true);
         }
         auto pos = m_ic.m_file->tell();
         try {
@@ -455,6 +522,15 @@ public:
         for (auto& kv : m_dictionary) kv.second->m_sid = unknownid;
         m_dictionary.clear();
         m_references.clear();
+    }
+
+    virtual void begin_segment(id segment_id) override {
+        db::begin_segment(segment_id);
+        if (m_reflection) {
+            // must be manually updated as the forward index is assumed to not change from under you
+            m_reflection->m_reg.m_forward_index.mark_segment(segment_id, m_file/* yes, m_file! */->tell());
+            if (m_reflection->m_reg.m_tip < segment_id) m_reflection->m_reg.m_tip = segment_id;
+        }
     }
 };
 

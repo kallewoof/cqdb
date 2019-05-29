@@ -97,6 +97,7 @@ inline std::shared_ptr<test_chronology> open_chronology(const std::string& dbpat
     if (reset) cq::rmdir_r(dbpath);
     auto rv = std::make_shared<test_chronology>(dbpath, "cluster", 1008);
     rv->load();
+    rv->enable_reflection(std::make_shared<test_chronology>(dbpath, "cluster", 1008, true));
     return rv;
 }
 
@@ -170,7 +171,7 @@ inline std::pair<std::shared_ptr<test_cluster_delegate>,std::shared_ptr<cq::clus
     cq::mkdir(dbpath); // create path here as it is not created by the cluster
     if (delegate && !delegate->get()) delegate->reset(new test_cluster_delegate(dbpath, "cluster"));
     auto cd = delegate ? *delegate : std::make_shared<test_cluster_delegate>(dbpath, "cluster");
-    auto c = std::make_shared<cq::cluster>(cd.get());
+    auto c = std::make_shared<cq::cluster>(cd.get(), false);
     return std::make_pair<std::shared_ptr<test_cluster_delegate>,std::shared_ptr<cq::cluster>>(std::move(cd), std::move(c));
 }
 
@@ -285,7 +286,7 @@ public:
 struct test_indexed_cluster_ctr {
     std::shared_ptr<test_indexed_cluster_delegate> m_delegate;
     cq::indexed_cluster m_ic;
-    test_indexed_cluster_ctr(std::shared_ptr<test_indexed_cluster_delegate> delegate) : m_delegate(delegate), m_ic(delegate.get()) {}
+    test_indexed_cluster_ctr(std::shared_ptr<test_indexed_cluster_delegate> delegate, bool readonly) : m_delegate(delegate), m_ic(delegate.get(), readonly) {}
     ~test_indexed_cluster_ctr() {
         m_ic.close();
     }
@@ -296,7 +297,7 @@ inline std::pair<std::shared_ptr<test_indexed_cluster_delegate>,std::shared_ptr<
     cq::mkdir(dbpath); // create path here as it is not created by the cluster
     if (delegate && !delegate->get()) delegate->reset(new test_indexed_cluster_delegate(dbpath, "cluster"));
     auto cd = delegate ? *delegate : std::make_shared<test_indexed_cluster_delegate>(dbpath, "cluster");
-    auto c = std::make_shared<test_indexed_cluster_ctr>(cd);
+    auto c = std::make_shared<test_indexed_cluster_ctr>(cd, false);
     return std::make_pair<std::shared_ptr<test_indexed_cluster_delegate>,std::shared_ptr<test_indexed_cluster_ctr>>(std::move(cd), std::move(c));
 }
 

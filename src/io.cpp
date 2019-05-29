@@ -189,7 +189,15 @@ void file::seek(long offset, int whence) {
     if (s == 1) fseek(m_fp, -1, SEEK_CUR); else fseek(m_fp, 0, SEEK_END);
     m_tell = ftell(m_fp);
 }
+
 long file::tell() { return m_tell; }
+
+void file::reopen() {
+    m_tell = ftell(m_fp);
+    fclose(m_fp);
+    m_fp = fopen(m_path.c_str(), m_readonly ? "rb" : "rb+");
+    fseek(m_fp, m_tell, SEEK_SET);
+}
 
 // char vector stream
 
@@ -220,13 +228,14 @@ long chv_stream::tell() { return m_tell; }
 
 // cluster stream
 
-cluster::cluster(cluster_delegate* delegate) : m_delegate(delegate), m_file(nullptr) {}
+cluster::cluster(cluster_delegate* delegate, bool readonly) : m_delegate(delegate), m_file(nullptr), m_readonly(readonly) {}
 cluster::~cluster()                                     { if (m_file) delete m_file; }
 size_t cluster::write(const uint8_t* data, size_t len)  { return m_file->write(data, len); }
 void cluster::seek(long offset, int whence)             { m_file->seek(offset, whence); }
 long cluster::tell()                                    { return m_file->tell(); }
 
 void cluster::open(id cluster, bool readonly, bool clear) {
+    if (!readonly && m_readonly) throw io_error("readonly cluster");
     if (m_cluster != nullid) m_delegate->cluster_will_close(m_cluster);
     bool require_readonly = !clear && (m_cluster != nullid && cluster < m_cluster);
     if (require_readonly && !readonly) throw io_error("readonly mode required when opening target cluster (non-sequential operation requested)");
@@ -258,9 +267,8 @@ size_t cluster::read(uint8_t* data, size_t len) {
     }
 }
 
-void cluster::resume_writing(bool clear) {
-    open(m_delegate->cluster_last(true), false, clear);
-    assert(!m_file->readonly());
+void cluster::resume(bool clear) {
+    open(m_delegate->cluster_last(!m_readonly), m_readonly, clear);
 }
 
 // indexed cluster
@@ -275,7 +283,18 @@ void indexed_cluster::close() {
     }
 }
 
+void indexed_cluster::flush() {
+    cluster::flush();
+    if (m_cluster != nullid && !m_file->readonly()) {
+        file forward_index(m_delegate->cluster_path(m_cluster + 1), false);
+        m_delegate->cluster_write_forward_index(m_cluster + 1, &forward_index);
+    }
+}
+
 void indexed_cluster::open(id cluster, bool readonly, bool clear) {
+    if (!readonly && m_readonly) throw io_error("readonly cluster");
+    if (cluster == nullid) throw io_error("attempt to open nullid cluster");
+
     // 0. If readwrite open, write forward index (aka "close").
     close();
 

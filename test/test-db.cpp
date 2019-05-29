@@ -195,8 +195,6 @@ TEST_CASE("Database", "[db]") {
     SECTION("storing a single object") {
         auto db = new_db();
         auto ob = test_object::make_random_unknown();
-        // attempting to store ob should throw a db_error, because we have not yet begun a segment
-        REQUIRE_THROWS_AS(db->store(ob.get()), cq::db_error);
         db->begin_segment(1);
         auto obid = db->store(ob.get());
         REQUIRE(obid > 0);
@@ -708,7 +706,7 @@ TEST_CASE("Database", "[db]") {
         REQUIRE(2 == reg.get_clusters().size());
         REQUIRE(1 == db->get_cluster());
         size_t filecount2 = db_file_count();
-        REQUIRE(filecount2 == filecount + 1);
+        REQUIRE(filecount2 == filecount + 2); // clister00001.cq, and cq.registry (created here because the first cluster change happens)
 
         REQUIRE(1 == db->get_forward_index().get_segment_count());
         REQUIRE(pos2 == db->get_forward_index().get_segment_position(1024));

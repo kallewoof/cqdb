@@ -751,12 +751,12 @@ TEST_CASE("Clusters", "[clusters]") {
         REQUIRE(c->eof());
     }
 
-    //     void resume_writing(bool clear = false) {
+    //     void resume(bool clear = false) {
     //     }
 
     SECTION("resume writing") {
         start(cd, c);
-        c->resume_writing();
+        c->resume();
         REQUIRE(c->m_file != nullptr);
         REQUIRE(c->m_cluster == 0);
         REQUIRE(cd->cluster_last(false) == 0);
@@ -771,7 +771,7 @@ TEST_CASE("Clusters", "[clusters]") {
 
     SECTION("writing") {
         start(cd, c);
-        c->resume_writing();
+        c->resume();
         *c << u32;
         c->w(u64);
         cq::varint(strlen(string)).serialize(c.get());
@@ -785,7 +785,7 @@ TEST_CASE("Clusters", "[clusters]") {
         std::shared_ptr<test_cluster_delegate> cd;
         {
             startd(cd, c);
-            c->resume_writing();
+            c->resume();
             *c << u32;
             c->w(u64);
             cq::varint(strlen(string)).serialize(c.get());
@@ -815,11 +815,11 @@ TEST_CASE("Clusters", "[clusters]") {
         std::shared_ptr<test_cluster_delegate> cd;
         {
             startd(cd, c);
-            c->resume_writing();
+            c->resume();
             *c << u32;
             c->w(u64);
             *cd += 1;
-            c->resume_writing();
+            c->resume();
             cq::varint(strlen(string)).serialize(c.get());
             c->write((const uint8_t*)string, strlen(string));
             REQUIRE(c->tell() == 1 + strlen(string));
@@ -889,12 +889,12 @@ TEST_CASE("Indexed clusters", "[indexed-clusters]") {
         REQUIRE(c->m_ic.eof());
     }
 
-    //     void resume_writing(bool clear = false) {
+    //     void resume(bool clear = false) {
     //     }
 
     SECTION("resume writing") {
         start(cd, c);
-        c->m_ic.resume_writing();
+        c->m_ic.resume();
         REQUIRE(c->m_ic.m_file != nullptr);
         REQUIRE(c->m_ic.m_cluster == 0);
         REQUIRE(cd->cluster_last(false) == 0);
@@ -909,7 +909,7 @@ TEST_CASE("Indexed clusters", "[indexed-clusters]") {
 
     SECTION("writing") {
         start(cd, c);
-        c->m_ic.resume_writing();
+        c->m_ic.resume();
         c->m_ic << u32;
         c->m_ic.w(u64);
         cq::varint(strlen(string)).serialize(&c->m_ic);
@@ -923,7 +923,7 @@ TEST_CASE("Indexed clusters", "[indexed-clusters]") {
         std::shared_ptr<test_indexed_cluster_delegate> cd;
         {
             startd(cd, c);
-            c->m_ic.resume_writing();
+            c->m_ic.resume();
             c->m_ic << u32;
             c->m_ic.w(u64);
             cq::varint(strlen(string)).serialize(&c->m_ic);
@@ -953,11 +953,11 @@ TEST_CASE("Indexed clusters", "[indexed-clusters]") {
         std::shared_ptr<test_indexed_cluster_delegate> cd;
         {
             startd(cd, c);
-            c->m_ic.resume_writing();
+            c->m_ic.resume();
             c->m_ic << u32;
             c->m_ic.w(u64);
             *cd += 1;
-            c->m_ic.resume_writing();
+            c->m_ic.resume();
             cq::varint(strlen(string)).serialize(&c->m_ic);
             c->m_ic.write((const uint8_t*)string, strlen(string));
             REQUIRE(c->m_ic.tell() == sizeof(cq::id) + 1 + strlen(string));

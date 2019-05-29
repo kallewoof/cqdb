@@ -175,44 +175,47 @@ void registry::cluster_clear_and_write_back_index(id cluster, file* file) {
 
 // db
 
-db::db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size)
+db::db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size, bool readonly)
     : m_dbpath(dbpath)
     , m_prefix(prefix)
     , m_reg(this, dbpath, prefix, cluster_size)
     , m_file(nullptr)
-    , m_ic(&m_reg)
-{}
-
-void db::open(id cluster, bool readonly) {
-    m_ic.open(cluster, readonly);
-}
-
-void db::resume() {
-    m_ic.resume_writing(false);
-    // if (m_reg.m_tip == 0) throw db_error("initial segment must be begun before writing to CQ database");
-    // m_cluster = m_reg.prepare_cluster_for_segment(m_reg.m_tip);
-    // open(false);
-}
-
-void db::load() {
+    , m_ic(&m_reg, readonly)
+    , m_readonly(readonly)
+{
     if (!mkdir(m_dbpath)) {
-        file regfile(m_dbpath + "/cq.registry", false);
-        regfile >> m_reg;
-        resume();
+        try {
+            file regfile(m_dbpath + "/cq.registry", true);
+            regfile >> m_reg;
+        } catch (const fs_error& err) {
+            // we do not catch io_error's, and an io_error is thrown if cq.registry existed but deserialization failed,
+            // which should be a crash
+        }
     }
 }
 
+void db::open(id cluster, bool readonly) {
+    if (!readonly && m_readonly) throw db_error("readonly database");
+    m_ic.open(cluster, readonly);
+}
+
+void db::load() {
+    m_ic.resume(false);
+}
+
 db::~db() {
-    file regfile(m_dbpath + "/cq.registry", false, true);
-    regfile << m_reg;
+    if (!m_readonly) {
+        file regfile(m_dbpath + "/cq.registry", false, true);
+        regfile << m_reg;
+    }
     m_ic.close();
 }
 
-void db::registry_closing_cluster(id cluster) {
-}
+void db::registry_closing_cluster(id cluster) {}
 
 void db::registry_opened_cluster(id cluster, file* file) {
     m_file = file;
+    if (m_readonly) assert(m_file->readonly());
 }
 
 //
@@ -221,7 +224,8 @@ void db::registry_opened_cluster(id cluster, file* file) {
 
 id db::store(object* t) {
     if (!m_file) throw db_error("invalid operation -- db not ready (no segment begun)");
-    if (m_file->readonly()) resume();
+    if (m_readonly) throw db_error("readonly database");
+    if (m_file->readonly()) throw db_error("file is readonly");
     assert(t);
     id rval = m_file->tell();
     *m_file << *t;
@@ -248,12 +252,14 @@ void db::fetch(object* t, id i) {
 }
 
 void db::refer(id sid) {
+    if (m_readonly) throw db_error("readonly database");
     assert(m_file);
     assert(sid < m_file->tell());
     *m_file << varint(m_file->tell() - sid);
 }
 
 void db::refer(object* t) {
+    if (m_readonly) throw db_error("readonly database");
     assert(m_file);
     assert(t);
     assert(t->m_sid != unknownid);
@@ -262,6 +268,7 @@ void db::refer(object* t) {
 }
 
 void db::refer(const uint256& hash) {
+    if (m_readonly) throw db_error("readonly database");
     assert(m_file);
     hash.Serialize(*m_file);
 }
@@ -278,6 +285,7 @@ uint256& db::derefer(uint256& hash) {
 }
 
 void db::refer(object** ts, size_t sz) {
+    if (m_readonly) throw db_error("readonly database");
     id known, unknown;
     assert(ts);
     assert(sz < 65536);
@@ -348,13 +356,20 @@ void db::derefer(std::set<id>& known_out,  std::set<uint256>& unknown_out) {
 }
 
 void db::begin_segment(id segment_id) {
+    if (m_readonly) throw db_error("readonly database");
     if (segment_id < m_reg.m_tip) throw db_error("may not begin a segment < current tip");
     id new_cluster = m_reg.prepare_cluster_for_segment(segment_id);
     assert(m_reg.m_tip == segment_id || !m_file);
+    bool write_reg = false;
     if (new_cluster != m_reg.m_current_cluster || !m_file) {
+        write_reg = true;
         m_ic.open(new_cluster, false);
     }
     m_reg.m_forward_index.mark_segment(segment_id, m_file->tell());
+    if (write_reg) {
+        file regfile(m_dbpath + "/cq.registry", false, true);
+        regfile << m_reg;
+    }
 }
 
 void db::goto_segment(id segment_id) {
@@ -367,7 +382,10 @@ void db::goto_segment(id segment_id) {
 }
 
 void db::flush() {
-    if (m_file) m_file->flush();
+    if (m_readonly) throw db_error("readonly database");
+    assert(m_ic.m_file == m_file);
+    m_ic.flush();
+    // if (m_file) m_file->flush();
 }
 
 } // namespace cq
