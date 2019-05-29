@@ -97,7 +97,7 @@ inline std::shared_ptr<test_chronology> open_chronology(const std::string& dbpat
     if (reset) cq::rmdir_r(dbpath);
     auto rv = std::make_shared<test_chronology>(dbpath, "cluster", 1008);
     rv->load();
-    rv->enable_reflection(std::make_shared<test_chronology>(dbpath, "cluster", 1008, true));
+    CHRON_SET_REFLECTION(rv, std::make_shared<test_chronology>(dbpath, "cluster", 1008, true));
     return rv;
 }
 

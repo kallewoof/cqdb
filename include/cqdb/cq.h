@@ -1,6 +1,10 @@
 #ifndef included_cq_cq_h_
 #define included_cq_cq_h_
 
+#if defined(HAVE_CONFIG_H)
+#include <config/config.h>
+#endif
+
 #include <string>
 #include <map>
 #include <memory>
@@ -12,6 +16,14 @@
 #include <cqdb/io.h>
 
 #include <cqdb/uint256.h>
+
+#ifdef USE_REFLECTION
+#   define CHRON_DOT(chron) chron->period()
+#   define CHRON_SET_REFLECTION(chron, reflection...) chron->enable_reflection(reflection)
+#else
+#   define CHRON_DOT(chron)
+#   define CHRON_SET_REFLECTION(chron, reflection...)
+#endif
 
 namespace cq {
 
@@ -271,6 +283,8 @@ public:
     long m_current_time;
     std::map<id, std::shared_ptr<T>> m_dictionary;
     std::map<uint256, id> m_references;
+
+#ifdef USE_REFLECTION
     std::shared_ptr<chronology> m_reflection; // debug tool used to assert that serialized data deserializes to itself
 
     inline void enable_reflection(std::shared_ptr<chronology> reflection) {
@@ -316,6 +330,7 @@ public:
         }
         return true;
     }
+
     inline bool operator!=(const chronology& other) const { return !operator==(other); }
 
     void period() {
@@ -330,6 +345,7 @@ public:
             throw chronology_error("reflection check failed");
         }
     }
+#endif // USE_REFLECTION
 
     virtual void compress(serializer* stm, const std::vector<uint256>& references) override {
         assert(stm == m_file);
@@ -394,7 +410,9 @@ public:
 
     chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024, bool readonly = false)
     :   m_current_time(0)
+#ifdef USE_REFLECTION
     ,   m_reflection(nullptr)
+#endif // USE_REFLECTION
     ,   db(dbpath, prefix, cluster_size, readonly)
     {}
 
@@ -524,6 +542,7 @@ public:
         m_references.clear();
     }
 
+#ifdef USE_REFLECTION
     virtual void begin_segment(id segment_id) override {
         db::begin_segment(segment_id);
         if (m_reflection) {
@@ -531,6 +550,7 @@ public:
             m_reflection->begin_segment(segment_id);
         }
     }
+#endif // USE_REFLECTION
 };
 
 } // namespace cq

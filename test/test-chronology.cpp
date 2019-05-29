@@ -195,7 +195,7 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_nop);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -225,7 +225,7 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(500000);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_nop);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -255,9 +255,9 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_nop);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_nop);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -291,7 +291,7 @@ TEST_CASE("chronology", "[chronology]") {
             auto ob = test_object::make_random_unknown();
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_add, ob);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -324,9 +324,9 @@ TEST_CASE("chronology", "[chronology]") {
             obhash = ob->m_hash;
             obhash2 = ob2->m_hash;
             chron->push_event(1557974775, cmd_add, ob);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_add, ob2);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -364,9 +364,9 @@ TEST_CASE("chronology", "[chronology]") {
             auto ob = test_object::make_random_unknown();
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_add, ob);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_del, ob);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -407,13 +407,13 @@ TEST_CASE("chronology", "[chronology]") {
             obhash = ob->m_hash;
             obhash2 = ob2->m_hash;
             chron->push_event(1557974775, cmd_add, ob);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_add, ob2);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974777, cmd_del, ob2);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974778, cmd_del, ob);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -465,7 +465,7 @@ TEST_CASE("chronology", "[chronology]") {
             auto ob = test_object::make_random_unknown();
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_reg, ob, false);
-            chron->period();
+            CHRON_DOT(chron);
             obid = ob->m_sid;
             REQUIRE(obid != 0);
             REQUIRE(chron->m_dictionary.count(obid) == 1);
@@ -508,7 +508,7 @@ TEST_CASE("chronology", "[chronology]") {
             auto ob = test_object::make_random_unknown();
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_reg, ob, false);
-            chron->period();
+            CHRON_DOT(chron);
             obid = ob->m_sid;
         }
         {
@@ -544,9 +544,9 @@ TEST_CASE("chronology", "[chronology]") {
             obhash = ob->m_hash;
             obhash2 = ob2->m_hash;
             chron->push_event(1557974775, cmd_reg, ob, false);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_reg, ob2, false);
-            chron->period();
+            CHRON_DOT(chron);
             obid = ob->m_sid;
             obid2 = ob2->m_sid;
         }
@@ -590,10 +590,10 @@ TEST_CASE("chronology", "[chronology]") {
             auto ob = test_object::make_random_unknown();
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_reg, ob, false);
-            chron->period();
+            CHRON_DOT(chron);
             obid = ob->m_sid;
             chron->push_event(1557974776, cmd_del, ob, false);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -631,13 +631,13 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_reg, ob2, false);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974777, cmd_del, ob, false);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974778, cmd_del, ob2, false);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -692,13 +692,13 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_add, ob2);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974777, cmd_del, ob);
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974778, cmd_del, ob2);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -767,7 +767,7 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_mass, std::set<std::shared_ptr<test_object>>{ob, ob2});
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -803,7 +803,7 @@ TEST_CASE("chronology", "[chronology]") {
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_mass_compressed);
             chron->m_file->m_compressor->compress(chron->m_file, std::vector<uint256>{ob->m_hash, ob2->m_hash});
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -836,11 +836,11 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_reg, ob2, false); // write full ref to make ob2 known
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974777, cmd_mass, std::set<std::shared_ptr<test_object>>{ob, ob2});
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -892,9 +892,9 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_mass, std::set<std::shared_ptr<test_object>>{ob, ob2});
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -947,7 +947,7 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_mass, std::set<std::shared_ptr<test_object>>{ob, ob2});
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -980,11 +980,11 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_reg, ob2, false); // write full ref to make ob known
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974777, cmd_mass, std::set<std::shared_ptr<test_object>>{ob, ob2});
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -1033,9 +1033,9 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_mass, std::set<std::shared_ptr<test_object>>{ob, ob2});
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -1098,7 +1098,7 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_mass, set);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -1131,11 +1131,11 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_reg, ob2, false); // write full ref to make ob known
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974777, cmd_mass, set);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
@@ -1184,9 +1184,9 @@ TEST_CASE("chronology", "[chronology]") {
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
-            chron->period();
+            CHRON_DOT(chron);
             chron->push_event(1557974776, cmd_mass, set);
-            chron->period();
+            CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
