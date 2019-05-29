@@ -48,9 +48,9 @@ public:
     virtual void decompress(serializer* stm, uint256& reference) =0;
 };
 
-class serializer {
+class serializer : compressor {
 public:
-    compressor* m_compressor{nullptr};
+    compressor* m_compressor{this};
 
     virtual ~serializer() {}
     virtual bool eof() =0;
@@ -74,6 +74,11 @@ public:
     template<typename T> serializer& operator>>(T& obj) { deserialize(*this, obj); return *this; }
 
     virtual std::string to_string() const { return "?"; }
+
+    virtual void compress(serializer* stm, const std::vector<uint256>& references) override;
+    virtual void compress(serializer* stm, const uint256& reference) override;
+    virtual void decompress(serializer* stm, std::vector<uint256>& references) override;
+    virtual void decompress(serializer* stm, uint256& reference) override;
 };
 
 class serializable {

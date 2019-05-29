@@ -27,6 +27,11 @@ uint8_t serializer::get_uint8() {
     throw fs_error(eof() ? "end of file" : "error reading from disk");
 }
 
+void serializer::compress(serializer* stm, const std::vector<uint256>& references) { varint(references.size()).serialize(stm); for (const auto& u : references) u.Serialize(*stm); }
+void serializer::compress(serializer* stm, const uint256& reference) { reference.Serialize(*stm); }
+void serializer::decompress(serializer* stm, std::vector<uint256>& references) { id c = varint::load(stm); references.resize(c); for (id i = 0; i < c; ++i) references[i].Unserialize(*stm); }
+void serializer::decompress(serializer* stm, uint256& reference) { reference.Unserialize(*stm); }
+
 void varint::serialize(serializer* stream) const {
     int nel = (sizeof(id)*8+6)/7;
     int marker = nel;
