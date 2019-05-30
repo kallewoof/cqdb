@@ -214,6 +214,11 @@ public:
      */
     virtual void goto_segment(id segment_id);
 
+    /**
+     * Rewind to the very beginning of the data.
+     */
+    inline void rewind() { goto_segment(*m_reg.get_clusters().m.begin()); }
+
     void flush();
 };
 

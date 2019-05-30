@@ -109,6 +109,7 @@ TEST_CASE("Registry", "[registry]") {
         cq::registry reg(&regdel, "/tmp/cq-reg", "reg", 2016);
         reg.prepare_cluster_for_segment(1 * 2016);
         reg.prepare_cluster_for_segment(128 * 2016);
+        REQUIRE(128 == reg.cluster_next(1));
         REQUIRE(reg.get_clusters().size() == 2);
         cq::chv_stream stream;
         stream << reg;
@@ -758,6 +759,29 @@ TEST_CASE("Database", "[db]") {
         REQUIRE(ob->m_hash == ob2.m_hash);
         REQUIRE(ob->m_sid == ob2.m_sid);
         REQUIRE(*ob == ob2);
+    }
+
+    SECTION("segment jumping across two files [long jump]") {
+        auto db = new_db();
+        auto ob = test_object::make_random_unknown();
+        auto ob3 = test_object::make_random_unknown();
+
+        db->begin_segment(1);
+        db->store(ob.get());
+        db->begin_segment(500000);
+        db->store(ob3.get());
+        db->goto_segment(1);
+        REQUIRE(db->m_ic.m_cluster == 0);
+        test_object ob2;
+        db->load(&ob2);
+        REQUIRE(ob->m_hash == ob2.m_hash);
+        REQUIRE(ob->m_sid == ob2.m_sid);
+        REQUIRE(*ob == ob2);
+        REQUIRE(!db->m_ic.eof()); // although cluster 0 is eof, there is still segment 500000
+        REQUIRE(db->m_ic.m_cluster == 500000/db->get_registry().m_cluster_size);
+        db->load(&ob2);
+        REQUIRE(ob3->m_hash == ob2.m_hash);
+        REQUIRE(ob3->m_sid == ob2.m_sid);
     }
 
     SECTION("segment jumping across three files with gap") {

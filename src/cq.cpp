@@ -115,7 +115,6 @@ id registry::cluster_next(id cluster) {
     if (m_clusters.m.size() == 0) return nullid;
     id last = *m_clusters.m.rbegin();
     if (last <= cluster) return nullid;
-    if (cluster + 32 < last) return cluster + 1;
     auto e = m_clusters.m.end();
     auto lower_bound = m_clusters.m.lower_bound(cluster);
     if (lower_bound == e) return nullid;
@@ -375,6 +374,10 @@ void db::goto_segment(id segment_id) {
     id new_cluster = m_reg.prepare_cluster_for_segment(segment_id);
     if (new_cluster != m_reg.m_current_cluster || !m_file) {
         m_ic.open(new_cluster, true);
+    }
+    if (segment_id == 0 && m_reg.m_forward_index.get_segment_count() == 0) {
+        // empty inital cluster; stop here and let iteration deal
+        return;
     }
     id pos = m_reg.m_forward_index.get_segment_position(segment_id);
     m_file->seek(pos, SEEK_SET);
