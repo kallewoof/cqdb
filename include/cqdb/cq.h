@@ -540,6 +540,7 @@ public:
         for (auto& kv : m_dictionary) kv.second->m_sid = unknownid;
         m_dictionary.clear();
         m_references.clear();
+        m_current_time = 0;
     }
 
     virtual void goto_segment(id segment_id) override {
