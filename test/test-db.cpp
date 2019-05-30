@@ -29,25 +29,23 @@ TEST_CASE("Objects", "[objects]") {
 
 TEST_CASE("Header", "[header]") {
     SECTION("construction") {
-        cq::header hdr(255, 1557791681, 0);
+        cq::header hdr(255, (cq::id)0);
         REQUIRE(0 == hdr.get_segment_count());
         REQUIRE(255 == hdr.get_version());
-        REQUIRE(1557791681 == hdr.get_timestamp_start());
     }
 
     SECTION("empty") {
-        cq::header hdr(255, 1557791681, 0);
+        cq::header hdr(255, (cq::id)0);
         cq::chv_stream stm;
         stm << hdr;
         stm.seek(0, SEEK_SET);
         cq::header hdr2(0, &stm);
         REQUIRE(0 == hdr2.get_segment_count());
         REQUIRE(255 == hdr2.get_version());
-        REQUIRE(1557791681 == hdr2.get_timestamp_start());
     }
 
     SECTION("single segment") {
-        cq::header hdr(255, 1557791681, 0);
+        cq::header hdr(255, (cq::id)0);
         hdr.mark_segment(1, 2);
         REQUIRE(1 == hdr.get_segment_count());
         REQUIRE(2 == hdr.get_segment_position(1));
@@ -60,7 +58,7 @@ TEST_CASE("Header", "[header]") {
     }
 
     SECTION("two segments") {
-        cq::header hdr(255, 1557791681, 0);
+        cq::header hdr(255, (cq::id)0);
         hdr.mark_segment(1, 2);
         hdr.mark_segment(999999, 3);
         REQUIRE(2 == hdr.get_segment_count());

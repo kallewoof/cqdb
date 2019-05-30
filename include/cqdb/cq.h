@@ -50,7 +50,6 @@ static const uint8_t HEADER_VERSION = 1;
 class header : public serializable {
 private:
     uint8_t m_version;                  //!< CQ version byte
-    uint64_t m_timestamp_start;         //!< internal representation starting timestamp (e.g. median time of first bitcoin block in list)
     /**
      * A map of segment ID : file position, where the segment ID in bitcoin's case refers to the block height.
      */
@@ -58,15 +57,14 @@ private:
 public:
     id m_cluster;
 
-    header(uint8_t version, uint64_t timestamp, id cluster);
+    header(uint8_t version, id cluster);
     header(id cluster, serializer* stream);
-    void reset(uint8_t version, uint64_t timestamp, id cluster);
+    void reset(uint8_t version, id cluster);
 
     prepare_for_serialization();
 
     void adopt(const header& other) {
         assert(m_version == other.m_version);
-        m_timestamp_start = other.m_timestamp_start;
         m_segments = other.m_segments;
         m_cluster = other.m_cluster;
     }
@@ -77,7 +75,6 @@ public:
     id get_last_segment() const;
     size_t get_segment_count() const;
     uint8_t get_version() const { return m_version; }
-    uint64_t get_timestamp_start() const { return m_timestamp_start; }
     std::string to_string() const {
         std::string s = "<cluster=" + std::to_string(m_cluster) + ">(\n";
         char v[256];
@@ -118,8 +115,8 @@ public:
     ,   m_cluster_size(cluster_size)
     ,   m_tip(0)
     ,   m_delegate(delegate)
-    ,   m_forward_index(HEADER_VERSION, 0, nullid)
-    ,   m_back_index(HEADER_VERSION, 0, nullid)
+    ,   m_forward_index(HEADER_VERSION, nullid)
+    ,   m_back_index(HEADER_VERSION, nullid)
     ,   m_current_cluster(nullid)
     {}
 

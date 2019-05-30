@@ -15,12 +15,11 @@ namespace cq {
 
 // header
 
-header::header(uint8_t version, uint64_t timestamp, id cluster) : m_cluster(cluster), m_version(version), m_timestamp_start(timestamp) {}
+header::header(uint8_t version, id cluster) : m_cluster(cluster), m_version(version) {}
 
-void header::reset(uint8_t version, uint64_t timestamp, id cluster) {
+void header::reset(uint8_t version, id cluster) {
     m_cluster = cluster;
     m_version = version;
-    m_timestamp_start = timestamp;
     m_segments.clear();
 }
 
@@ -35,8 +34,6 @@ void header::serialize(serializer* stream) const {
     stream->write((uint8_t*)magic, 2);
     // VERSION
     stream->w(m_version);
-    // TIMESTAMP
-    stream->w(m_timestamp_start);
     // SEGMENTS
     *stream << m_segments;
 }
@@ -52,8 +49,6 @@ void header::deserialize(serializer* stream) {
     }
     // VERSION
     stream->r(m_version);
-    // TIMESTAMP
-    stream->r(m_timestamp_start);
     // SEGMENTS
     *stream >> m_segments;
 }
@@ -159,7 +154,7 @@ void registry::cluster_read_forward_index(id cluster, file* file) {
 }
 
 void  registry::cluster_clear_forward_index(id cluster) {
-    m_forward_index.reset(HEADER_VERSION, 0, cluster);
+    m_forward_index.reset(HEADER_VERSION, cluster);
 }
 
 void registry::cluster_read_back_index(id cluster, file* file) {
@@ -168,7 +163,7 @@ void registry::cluster_read_back_index(id cluster, file* file) {
 }
 
 void registry::cluster_clear_and_write_back_index(id cluster, file* file) {
-    m_back_index.reset(HEADER_VERSION, 0, cluster);
+    m_back_index.reset(HEADER_VERSION, cluster);
     *file << m_back_index;
 }
 
