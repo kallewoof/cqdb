@@ -542,15 +542,26 @@ public:
         m_references.clear();
     }
 
-#ifdef USE_REFLECTION
+    virtual void goto_segment(id segment_id) override {
+        if (m_reg.prepare_cluster_for_segment(segment_id) != m_reg.m_current_cluster) {
+            // TODO: the time will be wrong when jumping to segments not evenly divisible with cluster size
+            m_current_time = 0;
+        }
+        db::goto_segment(segment_id);
+    }
+
     virtual void begin_segment(id segment_id) override {
+        if (m_reg.prepare_cluster_for_segment(segment_id) != m_reg.m_current_cluster) {
+            m_current_time = 0;
+        }
         db::begin_segment(segment_id);
+#ifdef USE_REFLECTION
         if (m_reflection) {
             flush();
             m_reflection->begin_segment(segment_id);
         }
-    }
 #endif // USE_REFLECTION
+    }
 };
 
 } // namespace cq
