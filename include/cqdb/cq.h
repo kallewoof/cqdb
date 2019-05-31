@@ -43,6 +43,7 @@ public:
         return m_hash == other.m_hash;
     }
     inline bool operator!=(const object& other) const { return !operator==(other); }
+    bool operator<(const object& other) const { return m_hash < other.m_hash; }
 };
 
 static const uint8_t HEADER_VERSION = 1;
