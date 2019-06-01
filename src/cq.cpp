@@ -11,6 +11,8 @@
 #   include <direct.h>
 #endif
 
+extern "C" { void libcqdb_is_present(void) {} } // hello autotools, pleased to meat you
+
 namespace cq {
 
 // header

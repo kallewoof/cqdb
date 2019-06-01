@@ -23,6 +23,8 @@
 #   define CHRON_SET_REFLECTION(chron, reflection...)
 #endif
 
+extern "C" { void libcqdb_is_present(void); } // hello autotools, pleased to meat you
+
 namespace cq {
 
 class db_error : public std::runtime_error { public: explicit db_error(const std::string& str) : std::runtime_error(str) {} };
