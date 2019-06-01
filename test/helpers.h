@@ -23,7 +23,7 @@ struct test_object : public cq::object {
         m_hash.Unserialize(*stream);
     }
     static std::shared_ptr<test_object> make_random_unknown() {
-        uint256 hash;
+        cq::uint256 hash;
         cq::randomize(hash.begin(), 32);
         return std::make_shared<test_object>(hash);
     }
@@ -50,9 +50,9 @@ public:
         m_file = file;
         uint8_t cmd;
         bool known;
-        uint256 hash;
-        std::set<uint256> hash_set;
-        std::vector<uint256> hash_vec;
+        cq::uint256 hash;
+        std::set<cq::uint256> hash_set;
+        std::vector<cq::uint256> hash_vec;
         if (!pop_event(cmd, known)) return false;
         switch (cmd) {
         case cmd_reg:

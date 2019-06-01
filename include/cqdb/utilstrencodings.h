@@ -19,6 +19,8 @@
 #define UEND(a)             ((unsigned char*)&((&(a))[1]))
 #define ARRAYLEN(array)     (sizeof(array)/sizeof((array)[0]))
 
+namespace cq {
+
 /** Used by SanitizeString() */
 enum SafeChars
 {
@@ -172,5 +174,7 @@ bool ConvertBits(const O& outfn, I it, I end) {
     }
     return true;
 }
+
+} // namespace cq
 
 #endif // BITCOIN_UTILSTRENCODINGS_H

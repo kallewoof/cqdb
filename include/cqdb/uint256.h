@@ -13,6 +13,8 @@
 #include <string>
 #include <vector>
 
+namespace cq {
+
 /** Template base class for fixed-sized opaque blobs. */
 template<unsigned int BITS>
 class base_blob
@@ -144,5 +146,7 @@ inline uint256 uint256S(const std::string& str)
     rv.SetHex(str);
     return rv;
 }
+
+} // namespace cq
 
 #endif // BITCOIN_UINT256_H

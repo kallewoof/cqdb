@@ -10,16 +10,16 @@ TEST_CASE("Objects", "[objects]") {
         // nothing uses the non-explicit two-param constructor
         test_object empty;
         REQUIRE(empty.m_sid == 0);
-        REQUIRE(empty.m_hash == uint256());
+        REQUIRE(empty.m_hash == cq::uint256());
 
-        uint256 v = uint256S("0102030405060708090a0b0c0d0e0f1011121314151617181920212223242526");
+        cq::uint256 v = cq::uint256S("0102030405060708090a0b0c0d0e0f1011121314151617181920212223242526");
         test_object with_hash(0, v);
         REQUIRE(with_hash.m_sid == 0);
         REQUIRE(with_hash.m_hash == v);
 
         test_object with_sid(123); // this also uses non-explicit two-param constructor
         REQUIRE(with_sid.m_sid == 123);
-        REQUIRE(with_sid.m_hash == uint256());
+        REQUIRE(with_sid.m_hash == cq::uint256());
     
         test_object with_both(123, v);
         REQUIRE(with_both.m_sid == 123);
@@ -244,7 +244,7 @@ TEST_CASE("Database", "[db]") {
 
     SECTION("should remember file states on reopen") {
         cq::id obid;
-        uint256 obhash;
+        cq::uint256 obhash;
         long pos;
         {
             auto db = new_db();
@@ -369,7 +369,7 @@ TEST_CASE("Database", "[db]") {
         auto pos = db->m_file->tell();
         db->refer(ob->m_hash);
         db->m_file->seek(pos, SEEK_SET);
-        uint256 h;
+        cq::uint256 h;
         REQUIRE(db->derefer(h) == ob->m_hash);
     }
 
@@ -397,7 +397,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ob2->m_hash);
         db->refer(ob->m_hash);
         db->m_file->seek(pos, SEEK_SET);
-        uint256 h;
+        cq::uint256 h;
         REQUIRE(db->derefer(h) == ob2->m_hash);
         REQUIRE(db->derefer(h) == ob->m_hash);
     }
@@ -412,7 +412,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ob2->m_hash);
         db->refer(ob.get());
         db->m_file->seek(pos, SEEK_SET);
-        uint256 h;
+        cq::uint256 h;
         REQUIRE(db->derefer(h) == ob2->m_hash);
         REQUIRE(db->derefer() == obid);
     }
@@ -446,7 +446,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ob2->m_hash);
         db->m_file->seek(pos, SEEK_SET);
         REQUIRE(db->derefer() == obid);
-        uint256 h;
+        cq::uint256 h;
         db->m_file->seek(pos2, SEEK_SET);
         REQUIRE(db->derefer(h) == ob2->m_hash);
     }
@@ -461,7 +461,7 @@ TEST_CASE("Database", "[db]") {
         auto obid2 = db->store(ob2.get());
         auto pos2 = db->m_file->tell();
         db->refer(ob2.get());
-        uint256 h;
+        cq::uint256 h;
         db->m_file->seek(pos, SEEK_SET);
         REQUIRE(db->derefer(h) == ob->m_hash);
         db->m_file->seek(pos2, SEEK_SET);
@@ -477,7 +477,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ob->m_hash);
         auto pos2 = db->m_file->tell();
         db->refer(ob2->m_hash);
-        uint256 h;
+        cq::uint256 h;
         db->m_file->seek(pos, SEEK_SET);
         REQUIRE(db->derefer(h) == ob->m_hash);
         db->m_file->seek(pos2, SEEK_SET);
@@ -486,7 +486,7 @@ TEST_CASE("Database", "[db]") {
 
     //     void refer(object** ts, size_t sz);     // writes an unordered set of references to sz number of objects
     //     void derefer(std::set<id>& known        // reads an unordered set of references from disk
-    //                , std::set<uint256> unknown);
+    //                , std::set<cq::uint256> unknown);
 
     SECTION("unordered set of 1 known 0 unknown references") {
         auto db = new_db();
@@ -500,7 +500,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 1);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<uint256> unknown;
+        std::set<cq::uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 1);
         REQUIRE(unknown.size() == 0);
@@ -519,11 +519,11 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 1);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<uint256> unknown;
+        std::set<cq::uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 0);
         REQUIRE(unknown.size() == 1);
-        std::vector<uint256> unknownv;
+        std::vector<cq::uint256> unknownv;
         for (const auto& u : unknown) unknownv.push_back(u);
         REQUIRE(unknownv[0] == ob->m_hash);
     }
@@ -542,7 +542,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 2);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<uint256> unknown;
+        std::set<cq::uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 2);
         REQUIRE(unknown.size() == 0);
@@ -563,12 +563,12 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 2);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<uint256> unknown;
+        std::set<cq::uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 0);
         REQUIRE(unknown.size() == 2);
         // we need to sort our hashes, because the results above are in sorted order, not chrono
-        std::set<uint256> expected;
+        std::set<cq::uint256> expected;
         expected.insert(ob->m_hash);
         expected.insert(ob2->m_hash);
         REQUIRE(expected == unknown);
@@ -587,7 +587,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 2);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<uint256> unknown;
+        std::set<cq::uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 1);
         REQUIRE(unknown.size() == 1);
@@ -613,7 +613,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 20);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<uint256> unknown;
+        std::set<cq::uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 20);
         REQUIRE(unknown.size() == 0);
@@ -624,7 +624,7 @@ TEST_CASE("Database", "[db]") {
         auto db = new_db();
         db->begin_segment(1);
         cq::object* ts[20];
-        std::set<uint256> unknown_set;
+        std::set<cq::uint256> unknown_set;
         std::set<std::shared_ptr<test_object>> unknown_refs;
         for (int i = 0; i < 20; ++i) {
             auto ob = test_object::make_random_unknown();
@@ -637,7 +637,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 20);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<uint256> unknown;
+        std::set<cq::uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 0);
         REQUIRE(unknown.size() == 20);
@@ -650,7 +650,7 @@ TEST_CASE("Database", "[db]") {
         cq::object* ts[40];
         std::set<cq::id> known_set;
         std::set<std::shared_ptr<test_object>> known_refs;
-        std::set<uint256> unknown_set;
+        std::set<cq::uint256> unknown_set;
         std::set<std::shared_ptr<test_object>> unknown_refs;
         for (int i = 0; i < 20; ++i) {
             auto ob = test_object::make_random_unknown();
@@ -670,7 +670,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 40);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<uint256> unknown;
+        std::set<cq::uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 20);
         REQUIRE(unknown.size() == 20);
