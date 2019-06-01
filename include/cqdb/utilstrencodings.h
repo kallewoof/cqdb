@@ -6,8 +6,8 @@
 /**
  * Utilities for converting data from/to strings.
  */
-#ifndef BITCOIN_UTILSTRENCODINGS_H
-#define BITCOIN_UTILSTRENCODINGS_H
+#ifndef included_cq_utilstrencodings_h_
+#define included_cq_utilstrencodings_h_
 
 #include <stdint.h>
 #include <string>
@@ -177,4 +177,4 @@ bool ConvertBits(const O& outfn, I it, I end) {
 
 } // namespace cq
 
-#endif // BITCOIN_UTILSTRENCODINGS_H
+#endif // included_cq_utilstrencodings_h_
