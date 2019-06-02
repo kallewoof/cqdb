@@ -13,8 +13,6 @@
 
 #include <cqdb/io.h>
 
-#include <cqdb/uint256.h>
-
 #ifdef USE_REFLECTION
 #   define CHRON_DOT(chron) chron->period()
 #   define CHRON_SET_REFLECTION(chron, reflection...) chron->enable_reflection(reflection)
@@ -35,12 +33,13 @@ class chronology_error : public std::runtime_error { public: explicit chronology
 
 constexpr id unknownid = 0x0;
 
-class object : public serializable {
+template<typename H> class object : public serializable {
 public:
     id m_sid;
-    uint256 m_hash;
-    explicit object(const uint256& hash) : object(unknownid, hash) {}
-    object(id sid = unknownid, const uint256& hash = uint256()) : m_sid(sid), m_hash(hash) {}
+    H m_hash;
+    compressor<H>* m_compressor;
+    object(compressor<H>* compressor, const H& hash) : object(compressor, unknownid, hash) {}
+    object(compressor<H>* compressor, id sid = unknownid, const H& hash = H()) : m_sid(sid), m_hash(hash), m_compressor(compressor) {}
     bool operator==(const object& other) const {
         return m_hash == other.m_hash;
     }
@@ -154,7 +153,7 @@ public:
     inline const unordered_set& get_clusters() const { return m_clusters; }
 };
 
-class db : public registry_delegate {
+template<typename H> class db : public registry_delegate {
 protected:
     const std::string m_dbpath;
     const std::string m_prefix;
@@ -181,18 +180,18 @@ public:
     virtual bool registry_iterate(file* file) override { file->seek(0, SEEK_END); return false; }
 
     // registry
-    id store(object* t);                    // writes object to disk and returns its absolute id
-    void load(object* t);                   // reads object from disk at current position
-    void fetch(object* t, id i);            // fetches object with obid 'i' into *t from disk
+    id store(object<H>* t);                    // writes object to disk and returns its absolute id
+    void load(object<H>* t);                   // reads object from disk at current position
+    void fetch(object<H>* t, id i);            // fetches object with obid 'i' into *t from disk
     void refer(id sid);                     // writes a reference to the object with the given sid
-    void refer(object* t);                  // writes a reference to t to disk (known)
+    void refer(object<H>* t);                  // writes a reference to t to disk (known)
     id derefer();                           // reads a reference id from disk
-    void refer(const uint256& hash);        // write a reference to an unknown object to disk
-    uint256& derefer(uint256& hash);        // reads a reference to an unknown object from disk
+    void refer(const H& hash);       // write a reference to an unknown object to disk
+    H& derefer(H& hash);      // reads a reference to an unknown object from disk
 
-    void refer(object** ts, size_t sz);     // writes an unordered set of references to sz number of objects
+    void refer(object<H>** ts, size_t sz);     // writes an unordered set of references to sz number of objects
     void derefer(std::set<id>& known        // reads an unordered set of known/unknown references from disk
-               , std::set<uint256>& unknown);
+               , std::set<H>& unknown);
 
     inline const registry& get_registry() const { return m_reg; }
     inline const id& get_cluster() const { return m_ic.m_cluster; }
@@ -225,18 +224,18 @@ public:
 inline uint8_t time_rel_value(uint8_t cmd) { return cmd >> 6; }
 inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6); }
 
-#define _read_time(t, current_time, timerel) \
+#define _read_time(H, t, current_time, timerel) \
     t = current_time + timerel + (timerel > 2 ? varint::load(m_file) : 0)
 
-#define read_cmd_time(u8, cmd, known, timerel, time, current_time) do { \
+#define read_cmd_time(H, u8, cmd, known, timerel, time, current_time) do { \
         u8 = m_file->get_uint8(); \
         cmd = (u8 & 0x1f); /* 0b0001 1111 */ \
         known = 0 != (u8 & 0x20); \
         timerel = time_rel_value(u8); \
-        _read_time(time, current_time, timerel); \
+        _read_time(H, time, current_time, timerel); \
     } while(0)
 
-#define _write_time(rel, current_time, write_time) do { \
+#define _write_time(H, rel, current_time, write_time) do { \
         if (time_rel_value(rel) > 2) { \
             uint64_t tfull = uint64_t(write_time - time_rel_value(rel) - current_time); \
             varint(tfull).serialize(m_file); \
@@ -280,12 +279,18 @@ inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6)
  *      -'-;                    [cmd:LEAVE; known]  -> ref = pop_reference();               m_references.at(ref) == bar
  *      -'-;                    [cmd:GRADUATE]      -> pop_references(known, unknown);      known == [foo, bar]
  */
-template<typename T>
-class chronology : public db, public compressor {
+template<typename H, typename T>
+class chronology : public db<H>, public compressor<H> {
+protected:
+    using db<H>::m_reg;
 public:
+    using db<H>::derefer;
+    using db<H>::refer;
+    using db<H>::m_file;
+    using db<H>::m_ic;
     long m_current_time;
     std::map<id, std::shared_ptr<T>> m_dictionary;
-    std::map<uint256, id> m_references;
+    std::map<H, id> m_references;
 
 #ifdef USE_REFLECTION
     std::shared_ptr<chronology> m_reflection; // debug tool used to assert that serialized data deserializes to itself
@@ -350,7 +355,7 @@ public:
     }
 #endif // USE_REFLECTION
 
-    virtual void compress(serializer* stm, const std::vector<uint256>& references) override {
+    virtual void compress(serializer* stm, const std::vector<H>& references) override {
         assert(stm == m_file);
         // generate known bit field
         size_t refs = references.size();
@@ -369,7 +374,7 @@ public:
         }
     }
 
-    virtual void compress(serializer* stm, const uint256& reference) override {
+    virtual void compress(serializer* stm, const H& reference) override {
         assert(stm == m_file);
         uint8_t known = m_references.count(reference);
         *m_file << known;
@@ -380,14 +385,14 @@ public:
         }
     }
 
-    virtual void decompress(serializer* stm, std::vector<uint256>& references) override {
+    virtual void decompress(serializer* stm, std::vector<H>& references) override {
         assert(stm == m_file);
         // length of vector as varint
         size_t refs = varint::load(m_file);
         // fetch known bit field
         bitfield bf(refs);
         *m_file >> bf;
-        uint256 u;
+        H u;
         for (size_t i = 0; i < refs; ++i) {
             if (bf[i]) {
                 references.push_back(m_dictionary.at(m_file->tell() - varint::load(m_file))->m_hash);
@@ -398,7 +403,7 @@ public:
         }
     }
 
-    virtual void decompress(serializer* stm, uint256& reference) override {
+    virtual void decompress(serializer* stm, H& reference) override {
         assert(stm == m_file);
         uint8_t known;
         *m_file >> known;
@@ -409,14 +414,14 @@ public:
         }
     }
 
-    inline std::shared_ptr<T> tretch(const uint256& hash) { return m_references.count(hash) ? m_dictionary.at(m_references.at(hash)) : nullptr; }
+    inline std::shared_ptr<T> tretch(const H& hash) { return m_references.count(hash) ? m_dictionary.at(m_references.at(hash)) : nullptr; }
 
     chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024, bool readonly = false)
     :   m_current_time(0)
 #ifdef USE_REFLECTION
     ,   m_reflection(nullptr)
 #endif // USE_REFLECTION
-    ,   db(dbpath, prefix, cluster_size, readonly)
+    ,   db<H>(dbpath, prefix, cluster_size, readonly)
     {}
 
     //////////////////////////////////////////////////////////////////////////////////////
@@ -429,14 +434,14 @@ public:
         bool known = subject.get() && m_references.count(subject->m_hash);
         uint8_t header_byte = cmd | (known << 5) | time_rel_bits(timestamp - m_current_time);
         *m_file << header_byte;
-        _write_time(header_byte, m_current_time, timestamp); // this updates m_current_time
+        _write_time(H, header_byte, m_current_time, timestamp); // this updates m_current_time
         if (subject.get()) {
             if (known) {
                 refer(subject.get());
             } else if (refer_only) {
                 refer(subject->m_hash);
             } else {
-                id obid = store(subject.get());
+                id obid = db<H>::store(subject.get());
                 m_dictionary[obid] = subject;
                 m_references[subject->m_hash] = obid;
             }
@@ -445,7 +450,7 @@ public:
 
     void push_event(long timestamp, uint8_t cmd, const std::set<std::shared_ptr<T>>& subjects) {
         push_event(timestamp, cmd);
-        object* ts[subjects.size()];
+        object<H>* ts[subjects.size()];
         size_t i = 0;
         for (auto& tp : subjects) {
             ts[i++] = tp.get();
@@ -453,10 +458,10 @@ public:
         refer(ts, i);
     }
 
-    void push_event(long timestamp, uint8_t cmd, const std::set<uint256>& subject_hashes) {
+    void push_event(long timestamp, uint8_t cmd, const std::set<H>& subject_hashes) {
         push_event(timestamp, cmd);
         std::set<std::shared_ptr<T>> pool;
-        object* ts[subject_hashes.size()];
+        object<H>* ts[subject_hashes.size()];
         size_t i = 0;
         for (auto& hash : subject_hashes) {
             if (m_references.count(hash)) {
@@ -464,7 +469,7 @@ public:
                 ts[i] = m_dictionary.at(m_references.at(hash)).get();
             } else {
                 // unknown
-                auto ob = std::make_shared<T>(hash);
+                auto ob = std::make_shared<T>(this, hash);
                 pool.insert(ob);
                 ts[i] = ob.get();
             }
@@ -486,7 +491,7 @@ public:
         }
         auto pos = m_ic.m_file->tell();
         try {
-            read_cmd_time(u8, cmd, known, timerel, time, m_current_time);
+            read_cmd_time(H, u8, cmd, known, timerel, time, m_current_time);
             if (peeking) m_ic.m_file->seek(pos, SEEK_SET);
         } catch (io_error) {
             return false;
@@ -507,24 +512,24 @@ public:
     }
 
     std::shared_ptr<T> pop_object() {
-        std::shared_ptr<T> object = std::make_shared<T>();
-        load(object.get());
+        std::shared_ptr<T> object = std::make_shared<T>(this);
+        db<H>::load(object.get());
         id obid = object->m_sid;
         m_dictionary[obid] = object;
         m_references[object->m_hash] = obid;
         return m_dictionary.at(obid);
     }
 
-    id pop_reference()                    { return derefer(); }
-    uint256& pop_reference(uint256& hash) { return derefer(hash); }
+    id pop_reference()        { return derefer(); }
+    H& pop_reference(H& hash) { return derefer(hash); }
 
-    void pop_references(std::set<id>& known, std::set<uint256>& unknown) {
+    void pop_references(std::set<id>& known, std::set<H>& unknown) {
         known.clear();
         unknown.clear();
         derefer(known, unknown);
     }
 
-    void pop_reference_hashes(std::set<uint256>& mixed) {
+    void pop_reference_hashes(std::set<H>& mixed) {
         std::set<id> known;
         pop_references(known, mixed);
         for (id i : known) {
@@ -533,13 +538,13 @@ public:
         }
     }
 
-    virtual void registry_opened_cluster(id cluster, file* file) override {
-        db::registry_opened_cluster(cluster, file);
-        file->m_compressor = this;
-    }
+    // virtual void registry_opened_cluster(id cluster, file* file) override {
+    //     db<H>::registry_opened_cluster(cluster, file);
+    //     file->m_compressor = this;
+    // }
 
     virtual void registry_closing_cluster(id cluster) override {
-        db::registry_closing_cluster(cluster);
+        db<H>::registry_closing_cluster(cluster);
         for (auto& kv : m_dictionary) kv.second->m_sid = unknownid;
         m_dictionary.clear();
         m_references.clear();
@@ -551,14 +556,14 @@ public:
             // TODO: the time will be wrong when jumping to segments not evenly divisible with cluster size
             m_current_time = 0;
         }
-        db::goto_segment(segment_id);
+        db<H>::goto_segment(segment_id);
     }
 
     virtual void begin_segment(id segment_id) override {
         if (m_reg.prepare_cluster_for_segment(segment_id) != m_reg.m_current_cluster) {
             m_current_time = 0;
         }
-        db::begin_segment(segment_id);
+        db<H>::begin_segment(segment_id);
 #ifdef USE_REFLECTION
         if (m_reflection) {
             flush();
@@ -567,6 +572,224 @@ public:
 #endif // USE_REFLECTION
     }
 };
+
+// db
+
+template<typename H> db<H>::db(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size, bool readonly)
+    : m_dbpath(dbpath)
+    , m_prefix(prefix)
+    , m_reg(this, dbpath, prefix, cluster_size)
+    , m_file(nullptr)
+    , m_ic(&m_reg, readonly)
+    , m_readonly(readonly)
+{
+    if (!mkdir(m_dbpath)) {
+        try {
+            file regfile(m_dbpath + "/cq.registry", true);
+            regfile >> m_reg;
+        } catch (const fs_error& err) {
+            // we do not catch io_error's, and an io_error is thrown if cq.registry existed but deserialization failed,
+            // which should be a crash
+        }
+    }
+}
+
+template<typename H> void db<H>::open(id cluster, bool readonly) {
+    if (!readonly && m_readonly) throw db_error("readonly database");
+    m_ic.open(cluster, readonly);
+}
+
+template<typename H> void db<H>::load() {
+    m_ic.resume(false);
+}
+
+template<typename H> db<H>::~db() {
+    if (!m_readonly) {
+        file regfile(m_dbpath + "/cq.registry", false, true);
+        regfile << m_reg;
+    }
+    m_ic.close();
+}
+
+template<typename H> void db<H>::registry_closing_cluster(id cluster) {}
+
+template<typename H> void db<H>::registry_opened_cluster(id cluster, file* file) {
+    m_file = file;
+    if (m_readonly) assert(m_file->readonly());
+}
+
+//
+// db registry
+//
+
+template<typename H> id db<H>::store(object<H>* t) {
+    if (!m_file) throw db_error("invalid operation -- db not ready (no segment begun)");
+    if (m_readonly) throw db_error("readonly database");
+    if (m_file->readonly()) throw db_error("file is readonly");
+    assert(t);
+    id rval = m_file->tell();
+    *m_file << *t;
+    t->m_sid = rval;
+    return rval;
+}
+
+template<typename H> void db<H>::load(object<H>* t) {
+    assert(m_file);
+    assert(t);
+    id rval = m_file->tell();
+    *m_file >> *t;
+    t->m_sid = rval;
+}
+
+template<typename H> void db<H>::fetch(object<H>* t, id i) {
+    assert(m_file);
+    assert(t);
+    long p = m_file->tell();
+    if (p != i) m_file->seek(i, SEEK_SET);
+    *m_file >> *t;
+    if (p != m_file->tell()) m_file->seek(p, SEEK_SET);
+    t->m_sid = i;
+}
+
+template<typename H> void db<H>::refer(id sid) {
+    if (m_readonly) throw db_error("readonly database");
+    assert(m_file);
+    assert(sid < m_file->tell());
+    *m_file << varint(m_file->tell() - sid);
+}
+
+template<typename H> void db<H>::refer(object<H>* t) {
+    if (m_readonly) throw db_error("readonly database");
+    assert(m_file);
+    assert(t);
+    assert(t->m_sid != unknownid);
+    assert(t->m_sid < m_file->tell());
+    *m_file << varint(m_file->tell() - t->m_sid);
+}
+
+template<typename H> void db<H>::refer(const H& hash) {
+    if (m_readonly) throw db_error("readonly database");
+    assert(m_file);
+    hash.Serialize(*m_file);
+}
+
+template<typename H> id db<H>::derefer() {
+    assert(m_file);
+    return m_file->tell() - varint::load(m_file);
+}
+
+template<typename H> H& db<H>::derefer(H& hash) {
+    assert(m_file);
+    hash.Unserialize(*m_file);
+    return hash;
+}
+
+template<typename H> void db<H>::refer(object<H>** ts, size_t sz) {
+    if (m_readonly) throw db_error("readonly database");
+    id known, unknown;
+    assert(ts);
+    assert(sz < 65536);
+
+    known = 0;
+    size_t klist[sz];
+    size_t idx = 0;
+    for (size_t i = 0; i < sz; ++i) {
+        if (ts[i]->m_sid) {
+            known++;
+            klist[idx++] = i;
+        }
+    }
+    unknown = sz - known;
+
+    // bits:    purpose:
+    // 0-3      1111 = known is 15 + a varint starting at next (available) byte, 0000~1110 = there are byte(bits) known (0-14)
+    // 4-7      ^ s/known/unknown/g
+
+    cond_varint<4> known_vi(known);
+    cond_varint<4> unknown_vi(unknown);
+
+    uint8_t multi_refer_header =
+        (  known_vi.byteval()     )
+    |   (unknown_vi.byteval() << 4);
+
+    *m_file << multi_refer_header;
+    known_vi.cond_serialize(m_file);
+    unknown_vi.cond_serialize(m_file);
+
+    // write known objects
+    // TODO: binomial encoding etc
+    id refpoint = m_file->tell();
+    for (id i = 0; i < known; ++i) {
+        *m_file << varint(refpoint - ts[klist[i]]->m_sid);
+    }
+    // write unknown object refs
+    for (id i = 0; i < sz; ++i) {
+        if (ts[i]->m_sid == unknownid) {
+            ts[i]->m_hash.Serialize(*m_file);
+        }
+    }
+}
+
+template<typename H> void db<H>::derefer(std::set<id>& known_out,  std::set<H>& unknown_out) {
+    known_out.clear();
+    unknown_out.clear();
+
+    uint8_t multi_refer_header;
+    *m_file >> multi_refer_header;
+    cond_varint<4> known_vi(multi_refer_header & 0x0f, m_file);
+    cond_varint<4> unknown_vi(multi_refer_header >> 4, m_file);
+    id known = known_vi.m_value;
+    id unknown = unknown_vi.m_value;
+
+    // read known objects
+    // TODO: binomial encoding etc
+    id refpoint = m_file->tell();
+    for (id i = 0; i < known; ++i) {
+        known_out.insert(refpoint - varint::load(m_file));
+    }
+    // read unknown refs
+    for (id i = 0; i < unknown; ++i) {
+        H h;
+        h.Unserialize(*m_file);
+        unknown_out.insert(h);
+    }
+}
+
+template<typename H> void db<H>::begin_segment(id segment_id) {
+    if (segment_id < m_reg.m_tip) throw db_error("may not begin a segment < current tip");
+    id new_cluster = m_reg.prepare_cluster_for_segment(segment_id);
+    assert(m_reg.m_tip == segment_id || !m_file);
+    bool write_reg = false;
+    if (new_cluster != m_reg.m_current_cluster || !m_file) {
+        write_reg = !m_readonly;
+        m_ic.open(new_cluster, m_readonly);
+    }
+    m_reg.m_forward_index.mark_segment(segment_id, m_file->tell());
+    if (write_reg) {
+        file regfile(m_dbpath + "/cq.registry", false, true);
+        regfile << m_reg;
+    }
+}
+
+template<typename H> void db<H>::goto_segment(id segment_id) {
+    id new_cluster = m_reg.prepare_cluster_for_segment(segment_id);
+    if (new_cluster != m_reg.m_current_cluster || !m_file) {
+        m_ic.open(new_cluster, true);
+    }
+    if (segment_id == 0 && m_reg.m_forward_index.get_segment_count() == 0) {
+        // empty inital cluster; stop here and let iteration deal
+        return;
+    }
+    id pos = m_reg.m_forward_index.get_segment_position(segment_id);
+    m_file->seek(pos, SEEK_SET);
+}
+
+template<typename H> void db<H>::flush() {
+    if (m_readonly) throw db_error("readonly database");
+    assert(m_ic.m_file == m_file);
+    m_ic.flush();
+    // if (m_file) m_file->flush();
+}
 
 } // namespace cq
 

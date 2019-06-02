@@ -3,14 +3,12 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <cqdb/uint256.h>
+#include <test/uint256.h>
 
-#include <cqdb/utilstrencodings.h>
+#include <test/utilstrencodings.h>
 
 #include <stdio.h>
 #include <string.h>
-
-namespace cq {
 
 template <unsigned int BITS>
 base_blob<BITS>::base_blob(const std::vector<unsigned char>& vch)
@@ -40,15 +38,15 @@ void base_blob<BITS>::SetHex(const char* psz)
 
     // hex string to uint
     const char* pbegin = psz;
-    while (cq::HexDigit(*psz) != -1)
+    while (::HexDigit(*psz) != -1)
         psz++;
     psz--;
     unsigned char* p1 = (unsigned char*)data;
     unsigned char* pend = p1 + WIDTH;
     while (psz >= pbegin && p1 < pend) {
-        *p1 = cq::HexDigit(*psz--);
+        *p1 = ::HexDigit(*psz--);
         if (psz >= pbegin) {
-            *p1 |= ((unsigned char)cq::HexDigit(*psz--) << 4);
+            *p1 |= ((unsigned char)::HexDigit(*psz--) << 4);
             p1++;
         }
     }
@@ -79,5 +77,3 @@ template std::string base_blob<256>::GetHex() const;
 template std::string base_blob<256>::ToString() const;
 template void base_blob<256>::SetHex(const char*);
 template void base_blob<256>::SetHex(const std::string&);
-
-} // namespace cq

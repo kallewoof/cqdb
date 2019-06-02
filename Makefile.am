@@ -28,16 +28,12 @@ lib_LIBRARIES = $(LIBCQDB)
 libcqdb_a_SOURCES = \
 	src/cq.cpp \
 	src/io.cpp \
-	src/uint256.cpp \
-	src/utilstrencodings.cpp \
 	include/cqdb/cq.h \
-	include/cqdb/io.h \
-	include/uint256.h \
-	include/utilstrencodings.h
+	include/cqdb/io.h
 libcqdb_a_CPPFLAGS = $(AM_CPPFLAGS) $(CQDB_INCLUDES)
 libcqdb_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 cqdbincludedir = $(includedir)/cqdb
-cqdbinclude_HEADERS = include/cqdb/cq.h include/cqdb/io.h include/cqdb/uint256.h include/cqdb/utilstrencodings.h include/cqdb/config.h
+cqdbinclude_HEADERS = include/cqdb/cq.h include/cqdb/io.h include/cqdb/config.h
 
 # test-cqdb binary #
 test_cqdb_SOURCES = \
@@ -46,7 +42,11 @@ test_cqdb_SOURCES = \
 	test/test-chronology.cpp \
 	test/test-cqdb.cpp \
 	test/test-db.cpp \
-	test/test-io.cpp
+	test/test-io.cpp \
+	test/uint256.cpp \
+	test/utilstrencodings.cpp \
+	test/uint256.h \
+	test/utilstrencodings.h
 test_cqdb_CPPFLAGS = $(AM_CPPFLAGS) $(CQDB_INCLUDES)
 test_cqdb_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_cqdb_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_AP_LDFLAGS)

@@ -38,7 +38,7 @@ TEST_CASE("Time relative", "[timerel]") {
         for (long relative_time = 0; relative_time < 128; ++relative_time) {
             uint8_t timerel = relative_time > 3 ? 3 : relative_time;
             expected_time += relative_time;
-            _read_time(m_current_time, m_current_time, timerel);
+            _read_time(uint256, m_current_time, m_current_time, timerel);
         }
         REQUIRE(expected_time == m_current_time);
     }
@@ -72,7 +72,7 @@ TEST_CASE("Time relative", "[timerel]") {
                     stream << u8x;
                     if (rtv) stream << *rtv;
                     stream.seek(0, SEEK_SET);
-                    read_cmd_time(u8, cmd, known, timerel, m_current_time, m_current_time);
+                    read_cmd_time(uint256, u8, cmd, known, timerel, m_current_time, m_current_time);
                     REQUIRE(u8 == u8x);
                     REQUIRE(cmd == cmd8);
                     REQUIRE(known == known8);
@@ -112,7 +112,7 @@ TEST_CASE("Time relative", "[timerel]") {
             running_time += relative_time;
             uint8_t u8 = cq::time_rel_bits(relative_time);
             auto start_pos = stream.tell();
-            _write_time(u8, m_current_time, running_time);
+            _write_time(uint256, u8, m_current_time, running_time);
             auto bytes = stream.tell() - start_pos;
             REQUIRE(bytes == need_bytes);
         }
@@ -121,7 +121,7 @@ TEST_CASE("Time relative", "[timerel]") {
         for (long relative_time = 0; relative_time < 132; ++relative_time) {
             expected_time += relative_time;
             uint8_t timerel = relative_time < 3 ? relative_time : 3;
-            _read_time(m_current_time, m_current_time, timerel);
+            _read_time(uint256, m_current_time, m_current_time, timerel);
             REQUIRE(m_current_time == expected_time);
         }
         REQUIRE(m_current_time == running_time);
@@ -129,14 +129,14 @@ TEST_CASE("Time relative", "[timerel]") {
 }
 
 TEST_CASE("chronology", "[chronology]") {
-    cq::uint256 hash;
+    uint256 hash;
 
     // template<typename T>
     // class chronology : public db {
     // public:
     //     long m_current_time;
     //     std::map<id, std::shared_ptr<T>> m_dictionary;
-    //     std::map<cq::uint256, id> m_references;
+    //     std::map<uint256, id> m_references;
 
     //     chronology(const std::string& dbpath, const std::string& prefix, uint32_t cluster_size = 1024)
     //     : m_current_time(0)
@@ -185,7 +185,7 @@ TEST_CASE("chronology", "[chronology]") {
 
     //     std::shared_ptr<T>& pop_object(std::shared_ptr<T>& object) { load(object.get()); return object; }
     //     id pop_reference()                                         { return derefer(); }
-    //     cq::uint256& pop_reference(cq::uint256& hash)                      { return derefer(hash); }
+    //     uint256& pop_reference(uint256& hash)                      { return derefer(hash); }
 
     long ptime;
     SECTION("pushing one no-subject event") {
@@ -283,12 +283,12 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("pushing one single subject event") {
         long pos;
-        cq::uint256 obhash;
+        uint256 obhash;
         {
             auto chron = new_chronology();
             chron->begin_segment(1);
             pos = chron->m_file->tell();
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(chron.get());
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_add, ob);
             CHRON_DOT(chron);
@@ -314,13 +314,13 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("pushing two subject events in a row") {
         long pos;
-        cq::uint256 obhash, obhash2;
+        uint256 obhash, obhash2;
         {
             auto chron = new_chronology();
             chron->begin_segment(1);
             pos = chron->m_file->tell();
-            auto ob = test_object::make_random_unknown();
-            auto ob2 = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(chron.get());
+            auto ob2 = test_object::make_random_unknown(chron.get());
             obhash = ob->m_hash;
             obhash2 = ob2->m_hash;
             chron->push_event(1557974775, cmd_add, ob);
@@ -356,12 +356,12 @@ TEST_CASE("chronology", "[chronology]") {
     SECTION("pushing the same subject in two events") {
         // because we are refer_only referencing, both pushes should show the object as unknown
         long pos;
-        cq::uint256 obhash;
+        uint256 obhash;
         {
             auto chron = new_chronology();
             chron->begin_segment(1);
             pos = chron->m_file->tell();
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(chron.get());
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_add, ob);
             CHRON_DOT(chron);
@@ -396,14 +396,14 @@ TEST_CASE("chronology", "[chronology]") {
     SECTION("pushing two subjects in four events") {
         // because we are refer_only referencing, all pushes should show the objects as unknown
         long pos;
-        cq::uint256 obhash;
-        cq::uint256 obhash2;
+        uint256 obhash;
+        uint256 obhash2;
         {
             auto chron = new_chronology();
             chron->begin_segment(1);
             pos = chron->m_file->tell();
-            auto ob = test_object::make_random_unknown();
-            auto ob2 = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(chron.get());
+            auto ob2 = test_object::make_random_unknown(chron.get());
             obhash = ob->m_hash;
             obhash2 = ob2->m_hash;
             chron->push_event(1557974775, cmd_add, ob);
@@ -456,13 +456,13 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("pushed single subjects (refer_only=false) should be known/remembered") {
         long pos;
-        cq::uint256 obhash;
+        uint256 obhash;
         cq::id obid;
         {
             auto chron = new_chronology();
             chron->begin_segment(1);
             pos = chron->m_file->tell();
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(chron.get());
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_reg, ob, false);
             CHRON_DOT(chron);
@@ -499,13 +499,13 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("pushing one single subject event (refer_only=false)") {
         long pos;
-        cq::uint256 obhash;
+        uint256 obhash;
         cq::id obid;
         {
             auto chron = new_chronology();
             chron->begin_segment(1);
             pos = chron->m_file->tell();
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(chron.get());
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_reg, ob, false);
             CHRON_DOT(chron);
@@ -533,14 +533,14 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("pushing two subject events (refer_only=false)") {
         long pos;
-        cq::uint256 obhash, obhash2;
+        uint256 obhash, obhash2;
         cq::id obid, obid2;
         {
             auto chron = new_chronology();
             chron->begin_segment(1);
             pos = chron->m_file->tell();
-            auto ob = test_object::make_random_unknown();
-            auto ob2 = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(chron.get());
+            auto ob2 = test_object::make_random_unknown(chron.get());
             obhash = ob->m_hash;
             obhash2 = ob2->m_hash;
             chron->push_event(1557974775, cmd_reg, ob, false);
@@ -581,13 +581,13 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("pushing the same subject in two events (refer_only=false)") {
         long pos;
-        cq::uint256 obhash;
+        uint256 obhash;
         cq::id obid;
         {
             auto chron = new_chronology();
             chron->begin_segment(1);
             pos = chron->m_file->tell();
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(chron.get());
             obhash = ob->m_hash;
             chron->push_event(1557974775, cmd_reg, ob, false);
             CHRON_DOT(chron);
@@ -624,10 +624,12 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("pushing two subjects in four events (refer_only=false)") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false);
@@ -685,10 +687,12 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("pushing two subject events (refer_only=false (1), true (2))") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false);
@@ -752,7 +756,7 @@ TEST_CASE("chronology", "[chronology]") {
     //         refer(ts, i);
     //     }
 
-    //     void pop_references(std::set<id>& known, std::set<cq::uint256>& unknown) {
+    //     void pop_references(std::set<id>& known, std::set<uint256>& unknown) {
     //         known.clear();
     //         unknown.clear();
     //         derefer(known, unknown);
@@ -760,10 +764,12 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 2 unknown subjects") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_mass, std::set<std::shared_ptr<test_object>>{ob, ob2});
@@ -782,9 +788,9 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(chron->m_current_time == 1557974775);
             // known is irrelevant
             std::set<cq::id> known_set;
-            std::set<cq::uint256> unknown_set;
+            std::set<uint256> unknown_set;
             chron->pop_references(known_set, unknown_set);
-            std::set<cq::uint256> expected_us{ob->m_hash, ob2->m_hash};
+            std::set<uint256> expected_us{ob->m_hash, ob2->m_hash};
             REQUIRE(known_set.size() == 0);
             REQUIRE(unknown_set.size() == 2);
             REQUIRE(unknown_set == expected_us);
@@ -795,18 +801,21 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 2 unknown subjects, using compressor") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_mass_compressed);
-            chron->m_file->m_compressor->compress(chron->m_file, std::vector<cq::uint256>{ob->m_hash, ob2->m_hash});
+            ob->m_compressor->compress(chron->m_file, std::vector<uint256>{ob->m_hash, ob2->m_hash});
             CHRON_DOT(chron);
         }
         {
             auto chron = open_chronology();
+            ob->m_compressor = ob2->m_compressor = chron.get();
             chron->m_file->seek(pos, SEEK_SET);
             chron->m_current_time = 0;
             uint8_t cmd;
@@ -817,9 +826,9 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(cmd_mass_compressed == cmd);
             REQUIRE(chron->m_current_time == 1557974775);
             // known is irrelevant
-            std::vector<cq::uint256> vec;
-            chron->m_file->m_compressor->decompress(chron->m_file, vec);
-            std::vector<cq::uint256> expected{ob->m_hash, ob2->m_hash};
+            std::vector<uint256> vec;
+            ob->m_compressor->decompress(chron->m_file, vec);
+            std::vector<uint256> expected{ob->m_hash, ob2->m_hash};
             REQUIRE(vec.size() == 2);
             REQUIRE(vec == expected);
             REQUIRE(!chron->peek_time(ptime));
@@ -829,10 +838,12 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 2 known subjects") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
@@ -872,7 +883,7 @@ TEST_CASE("chronology", "[chronology]") {
             // known is irrelevant
             REQUIRE(chron->m_current_time == 1557974777);
             std::set<cq::id> known_set;
-            std::set<cq::uint256> unknown_set;
+            std::set<uint256> unknown_set;
             chron->pop_references(known_set, unknown_set);
             std::set<cq::id> expected_ks{ob->m_sid, ob2->m_sid};
             REQUIRE(known_set.size() == 2);
@@ -885,10 +896,12 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 1 known 1 unknown subject") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
@@ -917,10 +930,10 @@ TEST_CASE("chronology", "[chronology]") {
             // known is irrelevant
             REQUIRE(chron->m_current_time == 1557974776);
             std::set<cq::id> known_set;
-            std::set<cq::uint256> unknown_set;
+            std::set<uint256> unknown_set;
             chron->pop_references(known_set, unknown_set);
             std::set<cq::id> expected_ks{ob->m_sid};
-            std::set<cq::uint256> expected_us{ob2->m_hash};
+            std::set<uint256> expected_us{ob2->m_hash};
             REQUIRE(known_set.size() == 1);
             REQUIRE(unknown_set.size() == 1);
             REQUIRE(known_set == expected_ks);
@@ -930,7 +943,7 @@ TEST_CASE("chronology", "[chronology]") {
         }
     }
 
-    //     void pop_reference_hashes(std::set<cq::uint256>& mixed) {
+    //     void pop_reference_hashes(std::set<uint256>& mixed) {
     //         std::set<id> known;
     //         pop_references(known, mixed);
     //         for (id i : known) {
@@ -940,10 +953,12 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 2 unknown subjects (ref as hash)") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_mass, std::set<std::shared_ptr<test_object>>{ob, ob2});
@@ -961,9 +976,9 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(cmd_mass == cmd);
             REQUIRE(chron->m_current_time == 1557974775);
             // known is irrelevant
-            std::set<cq::uint256> set;
+            std::set<uint256> set;
             chron->pop_reference_hashes(set);
-            std::set<cq::uint256> expected{ob->m_hash, ob2->m_hash};
+            std::set<uint256> expected{ob->m_hash, ob2->m_hash};
             REQUIRE(set.size() == 2);
             REQUIRE(set == expected);
             REQUIRE(!chron->peek_time(ptime));
@@ -973,10 +988,12 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 2 known subjects (ref as hash)") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
@@ -1014,9 +1031,9 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
             REQUIRE(chron->m_current_time == 1557974777);
-            std::set<cq::uint256> set;
+            std::set<uint256> set;
             chron->pop_reference_hashes(set);
-            std::set<cq::uint256> expected{ob->m_hash, ob2->m_hash};
+            std::set<uint256> expected{ob->m_hash, ob2->m_hash};
             REQUIRE(set.size() == 2);
             REQUIRE(set == expected);
             REQUIRE(!chron->peek_time(ptime));
@@ -1026,10 +1043,12 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 1 known 1 unknown subject (ref as hash)") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
@@ -1058,9 +1077,9 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
             REQUIRE(chron->m_current_time == 1557974776);
-            std::set<cq::uint256> set;
+            std::set<uint256> set;
             chron->pop_reference_hashes(set);
-            std::set<cq::uint256> expected{ob->m_hash, ob2->m_hash};
+            std::set<uint256> expected{ob->m_hash, ob2->m_hash};
             REQUIRE(set.size() == 2);
             REQUIRE(set == expected);
             REQUIRE(!chron->peek_time(ptime));
@@ -1068,7 +1087,7 @@ TEST_CASE("chronology", "[chronology]") {
         }
     }
 
-    //     void push_event(long timestamp, uint8_t cmd, const std::set<cq::uint256>& subject_hashes) {
+    //     void push_event(long timestamp, uint8_t cmd, const std::set<uint256>& subject_hashes) {
     //         push_event(timestamp, cmd);
     //         std::set<std::shared_ptr<T>> pool;
     //         object* ts[subject_hashes.size()];
@@ -1090,11 +1109,14 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 2 unknown subjects (push hash set)") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
-        std::set<cq::uint256> set{ob->m_hash, ob2->m_hash};
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
+        std::set<uint256> set;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
+            set = std::set<uint256>{ob->m_hash, ob2->m_hash};
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_mass, set);
@@ -1112,7 +1134,7 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(cmd_mass == cmd);
             REQUIRE(chron->m_current_time == 1557974775);
             // known is irrelevant
-            std::set<cq::uint256> set2;
+            std::set<uint256> set2;
             chron->pop_reference_hashes(set2);
             REQUIRE(set2.size() == 2);
             REQUIRE(set2 == set);
@@ -1123,11 +1145,14 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 2 known subjects (push hash set)") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
-        std::set<cq::uint256> set{ob->m_hash, ob2->m_hash};
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
+        std::set<uint256> set;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
+            set = std::set<uint256>{ob->m_hash, ob2->m_hash};
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
@@ -1165,7 +1190,7 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
             REQUIRE(chron->m_current_time == 1557974777);
-            std::set<cq::uint256> set2;
+            std::set<uint256> set2;
             chron->pop_reference_hashes(set2);
             REQUIRE(set2.size() == 2);
             REQUIRE(set2 == set);
@@ -1176,11 +1201,14 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("single event with 1 known 1 unknown subject (push hash set)") {
         long pos;
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
-        std::set<cq::uint256> set{ob->m_hash, ob2->m_hash};
+        std::shared_ptr<test_object> ob;
+        std::shared_ptr<test_object> ob2;
+        std::set<uint256> set;
         {
             auto chron = new_chronology();
+            ob = test_object::make_random_unknown(chron.get());
+            ob2 = test_object::make_random_unknown(chron.get());
+            set = std::set<uint256>{ob->m_hash, ob2->m_hash};
             chron->begin_segment(1);
             pos = chron->m_file->tell();
             chron->push_event(1557974775, cmd_reg, ob, false); // write full ref to make ob known
@@ -1209,7 +1237,7 @@ TEST_CASE("chronology", "[chronology]") {
             REQUIRE(cmd_mass == cmd);
             // known is irrelevant
             REQUIRE(chron->m_current_time == 1557974776);
-            std::set<cq::uint256> set2;
+            std::set<uint256> set2;
             chron->pop_reference_hashes(set2);
             REQUIRE(set2.size() == 2);
             REQUIRE(set2 == set);
@@ -1226,8 +1254,8 @@ TEST_CASE("chronology", "[chronology]") {
 
     SECTION("cluster changes") {
         // when a cluster changes, the chronology should purge known objects from memory
-        auto ob = test_object::make_random_unknown();
         auto chron = new_chronology();
+        auto ob = test_object::make_random_unknown(chron.get());
         chron->begin_segment(1);
         chron->push_event(1557974775, cmd_reg, ob, false);
         REQUIRE(chron->m_dictionary.count(ob->m_sid) == 1);

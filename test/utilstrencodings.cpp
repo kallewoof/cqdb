@@ -3,14 +3,12 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <cqdb/utilstrencodings.h>
+#include <test/utilstrencodings.h>
 
 #include <cstdlib>
 #include <cstring>
 #include <errno.h>
 #include <limits>
-
-namespace cq {
 
 static const std::string CHARS_ALPHA_NUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -478,5 +476,3 @@ bool ParseFixedPoint(const std::string &val, int decimals, int64_t *amount_out)
 
     return true;
 }
-
-} // namespace cq

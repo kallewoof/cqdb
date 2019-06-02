@@ -10,7 +10,13 @@
 #include <cstdio>
 #include <inttypes.h> // PRIu64
 
-#include <cqdb/uint256.h>
+#ifdef _WIN32
+#   include <direct.h>
+#   include <windows.h>
+#   include <tchar.h>
+#else
+#   include <dirent.h>
+#endif
 
 namespace cq {
 
@@ -38,20 +44,8 @@ template<typename T, typename Stream> void deserialize(Stream& stm, std::vector<
 S(uint8_t); S(uint16_t); S(uint32_t); S(uint64_t); S(int8_t); S(int16_t); S(int32_t); S(int64_t);
 #undef S
 
-class serializer;
-
-class compressor {
+class serializer {
 public:
-    virtual void compress(serializer* stm, const std::vector<uint256>& references) =0;
-    virtual void compress(serializer* stm, const uint256& reference) =0;
-    virtual void decompress(serializer* stm, std::vector<uint256>& references) =0;
-    virtual void decompress(serializer* stm, uint256& reference) =0;
-};
-
-class serializer : compressor {
-public:
-    compressor* m_compressor{this};
-
     virtual ~serializer() {}
     virtual bool eof() =0;
     virtual bool empty() { return tell() == 0 && eof(); }
@@ -74,11 +68,6 @@ public:
     template<typename T> serializer& operator>>(T& obj) { deserialize(*this, obj); return *this; }
 
     virtual std::string to_string() const { return "?"; }
-
-    virtual void compress(serializer* stm, const std::vector<uint256>& references) override;
-    virtual void compress(serializer* stm, const uint256& reference) override;
-    virtual void decompress(serializer* stm, std::vector<uint256>& references) override;
-    virtual void decompress(serializer* stm, uint256& reference) override;
 };
 
 class serializable {
@@ -122,11 +111,11 @@ template<typename T, typename Stream> void deserialize(Stream& stm, std::vector<
     for (size_t i = 0; i < vec.size(); ++i) deserialize(stm, vec[i]);
 }
 
-template<typename Stream> void serialize(Stream& stm, const serializable* ob) { ob->serialize(stm); }
-template<typename Stream> void deserialize(Stream& stm, serializable* ob)     { ob->deserialize(stm); }
+template<typename Stream> inline void serialize(Stream& stm, const serializable* ob) { ob->serialize(stm); }
+template<typename Stream> inline void deserialize(Stream& stm, serializable* ob)     { ob->deserialize(stm); }
 
-template<typename T, typename Stream> void serialize(Stream& stm, const T& ob) { ob.serialize(&stm); }
-template<typename T, typename Stream> void deserialize(Stream& stm, T& ob)     { ob.deserialize(&stm); }
+template<typename T, typename Stream> inline void serialize(Stream& stm, const T& ob) { ob.serialize(&stm); }
+template<typename T, typename Stream> inline void deserialize(Stream& stm, T& ob)     { ob.deserialize(&stm); }
 
 struct conditional : public varint {
     using varint::varint;
@@ -148,6 +137,7 @@ private:
     // and anything BELOW the cap is pre-described completely, and at or above the cap requires an additional varint
     static constexpr uint8_t CAP = (1 << BITS) - 1;
 public:
+    using varint::m_value;
     using conditional::conditional;
     cond_varint(uint8_t val, serializer* s) {
         cond_deserialize(val, s);
@@ -180,12 +170,20 @@ public:
     }
 };
 
+template<typename H> class compressor {
+public:
+    virtual void compress(serializer* stm, const std::vector<H>& references) { varint(references.size()).serialize(stm); for (const auto& u : references) u.Serialize(*stm); }
+    virtual void compress(serializer* stm, const H& reference) { reference.Serialize(*stm); }
+    virtual void decompress(serializer* stm, std::vector<H>& references) { id c = varint::load(stm); references.resize(c); for (id i = 0; i < c; ++i) references[i].Unserialize(*stm); }
+    virtual void decompress(serializer* stm, H& reference) { reference.Unserialize(*stm); }
+};
+
 /**
  * Incmaps are efficiently encoded maps linking two ordered sequences together. The two
  * sequences must be increasing s.t. each key and value can be expressed as the previous
  * key and value + positive integers (one for the key and one for the value).
  */
-struct incmap : serializable {
+struct incmap : public serializable {
     std::map<id, id> m;
     prepare_for_serialization();
     bool operator==(const incmap& other) const;
@@ -195,7 +193,7 @@ struct incmap : serializable {
     inline void clear() noexcept { m.clear(); }
 };
 
-struct unordered_set : serializable {
+struct unordered_set : public serializable {
     std::set<id> m;
     prepare_for_serialization();
     unordered_set() {}
@@ -339,6 +337,9 @@ public:
  */
 class indexed_cluster final : public cluster {
 public:
+    using cluster::m_cluster;
+    using cluster::m_file;
+    using cluster::m_readonly;
     indexed_cluster_delegate* m_delegate;
     indexed_cluster(indexed_cluster_delegate* delegate, bool readonly) : cluster(delegate, readonly) {
         m_delegate = delegate;

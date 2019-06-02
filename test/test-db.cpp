@@ -8,20 +8,20 @@
 TEST_CASE("Objects", "[objects]") {
     SECTION("construction") {
         // nothing uses the non-explicit two-param constructor
-        test_object empty;
+        test_object empty(nullptr);
         REQUIRE(empty.m_sid == 0);
-        REQUIRE(empty.m_hash == cq::uint256());
+        REQUIRE(empty.m_hash == uint256());
 
-        cq::uint256 v = cq::uint256S("0102030405060708090a0b0c0d0e0f1011121314151617181920212223242526");
-        test_object with_hash(0, v);
+        uint256 v = uint256S("0102030405060708090a0b0c0d0e0f1011121314151617181920212223242526");
+        test_object with_hash(nullptr, 0, v);
         REQUIRE(with_hash.m_sid == 0);
         REQUIRE(with_hash.m_hash == v);
 
-        test_object with_sid(123); // this also uses non-explicit two-param constructor
+        test_object with_sid(nullptr, 123); // this also uses non-explicit two-param constructor
         REQUIRE(with_sid.m_sid == 123);
-        REQUIRE(with_sid.m_hash == cq::uint256());
+        REQUIRE(with_sid.m_hash == uint256());
     
-        test_object with_both(123, v);
+        test_object with_both(nullptr, 123, v);
         REQUIRE(with_both.m_sid == 123);
         REQUIRE(with_both.m_hash == v);
     }
@@ -166,7 +166,7 @@ TEST_CASE("Database", "[db]") {
         std::string dbpath = "/tmp/cq-db-tests";
         cq::rmdir_r(dbpath);
         {
-            cq::db db(dbpath, "cluster", 1008);
+            cq::db<uint256> db(dbpath, "cluster", 1008);
             db.load();
             // should result in a new folder
             REQUIRE(!cq::mkdir(dbpath));
@@ -193,7 +193,7 @@ TEST_CASE("Database", "[db]") {
 
     SECTION("storing a single object") {
         auto db = new_db();
-        auto ob = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
         db->begin_segment(1);
         auto obid = db->store(ob.get());
         REQUIRE(obid > 0);
@@ -203,8 +203,8 @@ TEST_CASE("Database", "[db]") {
     SECTION("storing two objects") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
         auto obid2 = db->store(ob2.get());
         REQUIRE(obid > 0);
@@ -217,7 +217,7 @@ TEST_CASE("Database", "[db]") {
     SECTION("storing the same object twice") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
         REQUIRE(obid > 0);
         REQUIRE(obid == ob->m_sid);
@@ -233,9 +233,9 @@ TEST_CASE("Database", "[db]") {
     SECTION("storing then fetching a single object") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
-        test_object ob2;
+        test_object ob2(nullptr);
         db->fetch(&ob2, obid);
         REQUIRE(ob->m_hash == ob2.m_hash);
         REQUIRE(ob->m_sid == ob2.m_sid);
@@ -244,11 +244,11 @@ TEST_CASE("Database", "[db]") {
 
     SECTION("should remember file states on reopen") {
         cq::id obid;
-        cq::uint256 obhash;
+        uint256 obhash;
         long pos;
         {
             auto db = new_db();
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(nullptr);
             obhash = ob->m_hash;
             db->begin_segment(1);
             pos = db->m_file->tell();
@@ -257,7 +257,7 @@ TEST_CASE("Database", "[db]") {
         {
             auto db = open_db();
             db->m_file->seek(pos, SEEK_SET);
-            test_object ob;
+            test_object ob(nullptr);
             db->load(&ob);
             REQUIRE(ob.m_sid == obid);
             REQUIRE(ob.m_hash == obhash);
@@ -267,10 +267,10 @@ TEST_CASE("Database", "[db]") {
     SECTION("storing then loading a single object") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
         auto pos = db->m_file->tell();
         auto obid = db->store(ob.get());
-        test_object ob2;
+        test_object ob2(nullptr);
         db->m_file->seek(pos, SEEK_SET);
         db->load(&ob2);
         REQUIRE(ob->m_hash == ob2.m_hash);
@@ -281,10 +281,10 @@ TEST_CASE("Database", "[db]") {
     SECTION("storing one then attempting to load two objects") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
         auto pos = db->m_file->tell();
         auto obid = db->store(ob.get());
-        test_object ob2;
+        test_object ob2(nullptr);
         db->m_file->seek(pos, SEEK_SET);
         db->load(&ob2);
         REQUIRE(ob->m_hash == ob2.m_hash);
@@ -296,12 +296,12 @@ TEST_CASE("Database", "[db]") {
     SECTION("storing two objects in a row") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
         auto obid2 = db->store(ob2.get());
-        test_object ob3;
-        test_object ob4;
+        test_object ob3(nullptr);
+        test_object ob4(nullptr);
         // load 2nd, then 1st
         db->fetch(&ob3, obid2);
         REQUIRE(ob2->m_hash == ob3.m_hash);
@@ -315,14 +315,14 @@ TEST_CASE("Database", "[db]") {
 
     SECTION("storing two objects, with a segment in between") {
         auto db = new_db();
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         db->begin_segment(1);
         auto obid = db->store(ob.get());
         db->begin_segment(2);
         auto obid2 = db->store(ob2.get());
-        test_object ob3;
-        test_object ob4;
+        test_object ob3(nullptr);
+        test_object ob4(nullptr);
         // load 2nd, then 1st
         db->fetch(&ob3, obid2);
         REQUIRE(ob2->m_hash == ob3.m_hash);
@@ -339,10 +339,10 @@ TEST_CASE("Database", "[db]") {
     SECTION("writing reference to known object") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
         db->refer(ob.get());
-        test_object ob2;
+        test_object ob2(nullptr);
         db->fetch(&ob2, obid);
         REQUIRE(ob->m_hash == ob2.m_hash);
         REQUIRE(ob->m_sid == ob2.m_sid);
@@ -354,7 +354,7 @@ TEST_CASE("Database", "[db]") {
     SECTION("reading reference to known object") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
         auto pos = db->m_file->tell();
         db->refer(ob.get());
@@ -365,19 +365,19 @@ TEST_CASE("Database", "[db]") {
     SECTION("reading reference to unknown object") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
         auto pos = db->m_file->tell();
         db->refer(ob->m_hash);
         db->m_file->seek(pos, SEEK_SET);
-        cq::uint256 h;
+        uint256 h;
         REQUIRE(db->derefer(h) == ob->m_hash);
     }
 
     SECTION("reading reference to two known objects") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
         auto obid2 = db->store(ob2.get());
         auto pos = db->m_file->tell();
@@ -391,13 +391,13 @@ TEST_CASE("Database", "[db]") {
     SECTION("reading reference to two unknown objects") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         auto pos = db->m_file->tell();
         db->refer(ob2->m_hash);
         db->refer(ob->m_hash);
         db->m_file->seek(pos, SEEK_SET);
-        cq::uint256 h;
+        uint256 h;
         REQUIRE(db->derefer(h) == ob2->m_hash);
         REQUIRE(db->derefer(h) == ob->m_hash);
     }
@@ -405,14 +405,14 @@ TEST_CASE("Database", "[db]") {
     SECTION("reading reference to one known one unknown object") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
         auto pos = db->m_file->tell();
         db->refer(ob2->m_hash);
         db->refer(ob.get());
         db->m_file->seek(pos, SEEK_SET);
-        cq::uint256 h;
+        uint256 h;
         REQUIRE(db->derefer(h) == ob2->m_hash);
         REQUIRE(db->derefer() == obid);
     }
@@ -420,8 +420,8 @@ TEST_CASE("Database", "[db]") {
     SECTION("ob, ref, ob2, ref2 [2 known]") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
         auto pos = db->m_file->tell();
         db->refer(ob.get());
@@ -437,8 +437,8 @@ TEST_CASE("Database", "[db]") {
     SECTION("ob, ref, ob2, ref2 [L known]") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         auto obid = db->store(ob.get());
         auto pos = db->m_file->tell();
         db->refer(ob.get());
@@ -446,7 +446,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ob2->m_hash);
         db->m_file->seek(pos, SEEK_SET);
         REQUIRE(db->derefer() == obid);
-        cq::uint256 h;
+        uint256 h;
         db->m_file->seek(pos2, SEEK_SET);
         REQUIRE(db->derefer(h) == ob2->m_hash);
     }
@@ -454,14 +454,14 @@ TEST_CASE("Database", "[db]") {
     SECTION("ob, ref, ob2, ref2 [R known]") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         auto pos = db->m_file->tell();
         db->refer(ob->m_hash);
         auto obid2 = db->store(ob2.get());
         auto pos2 = db->m_file->tell();
         db->refer(ob2.get());
-        cq::uint256 h;
+        uint256 h;
         db->m_file->seek(pos, SEEK_SET);
         REQUIRE(db->derefer(h) == ob->m_hash);
         db->m_file->seek(pos2, SEEK_SET);
@@ -471,13 +471,13 @@ TEST_CASE("Database", "[db]") {
     SECTION("ob, ref, ob2, ref2 [2 unknown]") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
         auto pos = db->m_file->tell();
         db->refer(ob->m_hash);
         auto pos2 = db->m_file->tell();
         db->refer(ob2->m_hash);
-        cq::uint256 h;
+        uint256 h;
         db->m_file->seek(pos, SEEK_SET);
         REQUIRE(db->derefer(h) == ob->m_hash);
         db->m_file->seek(pos2, SEEK_SET);
@@ -486,13 +486,13 @@ TEST_CASE("Database", "[db]") {
 
     //     void refer(object** ts, size_t sz);     // writes an unordered set of references to sz number of objects
     //     void derefer(std::set<id>& known        // reads an unordered set of references from disk
-    //                , std::set<cq::uint256> unknown);
+    //                , std::set<uint256> unknown);
 
     SECTION("unordered set of 1 known 0 unknown references") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        cq::object* ts[] = {ob.get()};
+        auto ob = test_object::make_random_unknown(nullptr);
+        cq::object<uint256>* ts[] = {ob.get()};
 
         auto obid = db->store(ob.get());
 
@@ -500,7 +500,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 1);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<cq::uint256> unknown;
+        std::set<uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 1);
         REQUIRE(unknown.size() == 0);
@@ -512,18 +512,18 @@ TEST_CASE("Database", "[db]") {
     SECTION("unordered set of 0 known 1 unknown references") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        cq::object* ts[] = {ob.get()};
+        auto ob = test_object::make_random_unknown(nullptr);
+        cq::object<uint256>* ts[] = {ob.get()};
 
         auto pos = db->m_file->tell();
         db->refer(ts, 1);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<cq::uint256> unknown;
+        std::set<uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 0);
         REQUIRE(unknown.size() == 1);
-        std::vector<cq::uint256> unknownv;
+        std::vector<uint256> unknownv;
         for (const auto& u : unknown) unknownv.push_back(u);
         REQUIRE(unknownv[0] == ob->m_hash);
     }
@@ -531,9 +531,9 @@ TEST_CASE("Database", "[db]") {
     SECTION("unordered set of 2 known 0 unknown references") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
-        cq::object* ts[] = {ob.get(), ob2.get()};
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
+        cq::object<uint256>* ts[] = {ob.get(), ob2.get()};
 
         auto obid = db->store(ob.get());
         auto obid2 = db->store(ob2.get());
@@ -542,7 +542,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 2);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<cq::uint256> unknown;
+        std::set<uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 2);
         REQUIRE(unknown.size() == 0);
@@ -555,20 +555,20 @@ TEST_CASE("Database", "[db]") {
     SECTION("unordered set of 0 known 2 unknown references") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
-        cq::object* ts[] = {ob.get(), ob2.get()};
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
+        cq::object<uint256>* ts[] = {ob.get(), ob2.get()};
 
         auto pos = db->m_file->tell();
         db->refer(ts, 2);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<cq::uint256> unknown;
+        std::set<uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 0);
         REQUIRE(unknown.size() == 2);
         // we need to sort our hashes, because the results above are in sorted order, not chrono
-        std::set<cq::uint256> expected;
+        std::set<uint256> expected;
         expected.insert(ob->m_hash);
         expected.insert(ob2->m_hash);
         REQUIRE(expected == unknown);
@@ -577,9 +577,9 @@ TEST_CASE("Database", "[db]") {
     SECTION("unordered set of 1 known 1 unknown references") {
         auto db = new_db();
         db->begin_segment(1);
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
-        cq::object* ts[] = {ob.get(), ob2.get()};
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
+        cq::object<uint256>* ts[] = {ob.get(), ob2.get()};
 
         auto obid = db->store(ob.get());
 
@@ -587,7 +587,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 2);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<cq::uint256> unknown;
+        std::set<uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 1);
         REQUIRE(unknown.size() == 1);
@@ -598,11 +598,11 @@ TEST_CASE("Database", "[db]") {
     SECTION("unordered set of 20 known 0 unknown references") {
         auto db = new_db();
         db->begin_segment(1);
-        cq::object* ts[20];
+        cq::object<uint256>* ts[20];
         std::set<cq::id> known_set;
         std::set<std::shared_ptr<test_object>> known_refs;
         for (int i = 0; i < 20; ++i) {
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(nullptr);
             auto obid = db->store(ob.get());
             known_refs.insert(ob);
             known_set.insert(obid);
@@ -613,7 +613,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 20);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<cq::uint256> unknown;
+        std::set<uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 20);
         REQUIRE(unknown.size() == 0);
@@ -623,11 +623,11 @@ TEST_CASE("Database", "[db]") {
     SECTION("unordered set of 0 known 20 unknown references") {
         auto db = new_db();
         db->begin_segment(1);
-        cq::object* ts[20];
-        std::set<cq::uint256> unknown_set;
+        cq::object<uint256>* ts[20];
+        std::set<uint256> unknown_set;
         std::set<std::shared_ptr<test_object>> unknown_refs;
         for (int i = 0; i < 20; ++i) {
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(nullptr);
             unknown_refs.insert(ob);
             unknown_set.insert(ob->m_hash);
             ts[i] = ob.get();
@@ -637,7 +637,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 20);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<cq::uint256> unknown;
+        std::set<uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 0);
         REQUIRE(unknown.size() == 20);
@@ -647,20 +647,20 @@ TEST_CASE("Database", "[db]") {
     SECTION("unordered set of 20 known 20 unknown references") {
         auto db = new_db();
         db->begin_segment(1);
-        cq::object* ts[40];
+        cq::object<uint256>* ts[40];
         std::set<cq::id> known_set;
         std::set<std::shared_ptr<test_object>> known_refs;
-        std::set<cq::uint256> unknown_set;
+        std::set<uint256> unknown_set;
         std::set<std::shared_ptr<test_object>> unknown_refs;
         for (int i = 0; i < 20; ++i) {
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(nullptr);
             auto obid = db->store(ob.get());
             known_refs.insert(ob);
             known_set.insert(obid);
             ts[i] = ob.get();
         }
         for (int i = 20; i < 40; ++i) {
-            auto ob = test_object::make_random_unknown();
+            auto ob = test_object::make_random_unknown(nullptr);
             unknown_refs.insert(ob);
             unknown_set.insert(ob->m_hash);
             ts[i] = ob.get();
@@ -670,7 +670,7 @@ TEST_CASE("Database", "[db]") {
         db->refer(ts, 40);
         db->m_file->seek(pos, SEEK_SET);
         std::set<cq::id> known;
-        std::set<cq::uint256> unknown;
+        std::set<uint256> unknown;
         db->derefer(known, unknown);
         REQUIRE(known.size() == 20);
         REQUIRE(unknown.size() == 20);
@@ -727,15 +727,15 @@ TEST_CASE("Database", "[db]") {
 
     SECTION("segment jumping within one file") {
         auto db = new_db();
-        auto ob = test_object::make_random_unknown();
-        auto ob3 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob3 = test_object::make_random_unknown(nullptr);
 
         db->begin_segment(1);
         db->store(ob.get());
         db->begin_segment(2);
         db->store(ob3.get());
         db->goto_segment(1);
-        test_object ob2;
+        test_object ob2(nullptr);
         db->load(&ob2);
         REQUIRE(ob->m_hash == ob2.m_hash);
         REQUIRE(ob->m_sid == ob2.m_sid);
@@ -744,15 +744,15 @@ TEST_CASE("Database", "[db]") {
 
     SECTION("segment jumping across two files") {
         auto db = new_db();
-        auto ob = test_object::make_random_unknown();
-        auto ob3 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob3 = test_object::make_random_unknown(nullptr);
 
         db->begin_segment(1);
         db->store(ob.get());
         db->begin_segment(1025);
         db->store(ob3.get());
         db->goto_segment(1);
-        test_object ob2;
+        test_object ob2(nullptr);
         db->load(&ob2);
         REQUIRE(ob->m_hash == ob2.m_hash);
         REQUIRE(ob->m_sid == ob2.m_sid);
@@ -761,8 +761,8 @@ TEST_CASE("Database", "[db]") {
 
     SECTION("segment jumping across two files [long jump]") {
         auto db = new_db();
-        auto ob = test_object::make_random_unknown();
-        auto ob3 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob3 = test_object::make_random_unknown(nullptr);
 
         db->begin_segment(1);
         db->store(ob.get());
@@ -770,7 +770,7 @@ TEST_CASE("Database", "[db]") {
         db->store(ob3.get());
         db->goto_segment(1);
         REQUIRE(db->m_ic.m_cluster == 0);
-        test_object ob2;
+        test_object ob2(nullptr);
         db->load(&ob2);
         REQUIRE(ob->m_hash == ob2.m_hash);
         REQUIRE(ob->m_sid == ob2.m_sid);
@@ -784,9 +784,9 @@ TEST_CASE("Database", "[db]") {
 
     SECTION("segment jumping across three files with gap") {
         auto db = new_db();
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
-        auto ob3 = test_object::make_random_unknown();
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
+        auto ob3 = test_object::make_random_unknown(nullptr);
 
         db->begin_segment(1);
         db->store(ob.get());
@@ -795,7 +795,7 @@ TEST_CASE("Database", "[db]") {
         db->begin_segment(100000);
         db->store(ob3.get());
         db->goto_segment(1);
-        test_object obx;
+        test_object obx(nullptr);
         db->load(&obx);
         REQUIRE(ob->m_hash == obx.m_hash);
         REQUIRE(ob->m_sid == obx.m_sid);
@@ -814,10 +814,10 @@ TEST_CASE("Database", "[db]") {
 
     SECTION("segment jumping across three files loading in between jumps") {
         auto db = new_db();
-        auto ob = test_object::make_random_unknown();
-        auto ob2 = test_object::make_random_unknown();
-        auto ob3 = test_object::make_random_unknown();
-        test_object obx;
+        auto ob = test_object::make_random_unknown(nullptr);
+        auto ob2 = test_object::make_random_unknown(nullptr);
+        auto ob3 = test_object::make_random_unknown(nullptr);
+        test_object obx(nullptr);
 
         db->begin_segment(1);
         db->store(ob.get());

@@ -1,5 +1,6 @@
 #include <memory>
 #include <cqdb/cq.h>
+#include <test/uint256.h>
 
 static inline cq::conditional* get_varint(uint8_t b, cq::id value) {
     switch (b) {
@@ -14,18 +15,18 @@ static inline cq::conditional* get_varint(uint8_t b, cq::id value) {
     }
 }
 
-struct test_object : public cq::object {
-    using cq::object::object;
+struct test_object : public cq::object<uint256> {
+    using cq::object<uint256>::object;
     void serialize(cq::serializer* stream) const override {
         m_hash.Serialize(*stream);
     }
     void deserialize(cq::serializer* stream) override {
         m_hash.Unserialize(*stream);
     }
-    static std::shared_ptr<test_object> make_random_unknown() {
-        cq::uint256 hash;
+    static std::shared_ptr<test_object> make_random_unknown(cq::compressor<uint256>* compressor) {
+        uint256 hash;
         cq::randomize(hash.begin(), 32);
-        return std::make_shared<test_object>(hash);
+        return std::make_shared<test_object>(compressor, hash);
     }
 };
 
@@ -43,16 +44,16 @@ static const uint8_t cmd_mass = 0x03;   // mass <objects>
 static const uint8_t cmd_mass_compressed = 0x04; // mass_compressed <objects>
 static const uint8_t cmd_nop = 0x05;    // nop
 
-class test_chronology : public cq::chronology<test_object> {
+class test_chronology : public cq::chronology<uint256, test_object> {
 public:
-    using cq::chronology<test_object>::chronology;
+    using cq::chronology<uint256, test_object>::chronology;
     bool registry_iterate(cq::file* file) override {
         m_file = file;
         uint8_t cmd;
         bool known;
-        cq::uint256 hash;
-        std::set<cq::uint256> hash_set;
-        std::vector<cq::uint256> hash_vec;
+        uint256 hash;
+        std::set<uint256> hash_set;
+        std::vector<uint256> hash_vec;
         if (!pop_event(cmd, known)) return false;
         switch (cmd) {
         case cmd_reg:
@@ -76,14 +77,14 @@ public:
     }
 };
 
-inline std::shared_ptr<cq::db> open_db(const std::string& dbpath = "/tmp/cq-db-tests", bool reset = false) {
+inline std::shared_ptr<cq::db<uint256>> open_db(const std::string& dbpath = "/tmp/cq-db-tests", bool reset = false) {
     if (reset) cq::rmdir_r(dbpath);
-    auto rv = std::make_shared<cq::db>(dbpath, "cluster", 1008);
+    auto rv = std::make_shared<cq::db<uint256>>(dbpath, "cluster", 1008);
     rv->load();
     return rv;
 }
 
-inline std::shared_ptr<cq::db> new_db(const std::string& dbpath = "/tmp/cq-db-tests") {
+inline std::shared_ptr<cq::db<uint256>> new_db(const std::string& dbpath = "/tmp/cq-db-tests") {
     return open_db(dbpath, true);
 }
 
