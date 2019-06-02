@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <cstdio>
+#include <assert.h>
 
 #include <cqdb/io.h>
 

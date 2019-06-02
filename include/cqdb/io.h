@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <inttypes.h> // PRIu64
+#include <cstring>
 
 #ifdef _WIN32
 #   include <direct.h>
