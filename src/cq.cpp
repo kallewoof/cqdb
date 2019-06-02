@@ -52,6 +52,10 @@ id header::get_segment_position(id segment) const {
     return m_segments.at(segment);
 }
 
+bool header::has_segment(id segment) const {
+    return m_segments.count(segment) > 0;
+}
+
 size_t header::get_segment_count() const {
     return m_segments.size();
 }

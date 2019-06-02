@@ -74,6 +74,7 @@ public:
 
     void mark_segment(id segment, id position);
     id get_segment_position(id segment) const;
+    bool has_segment(id segment) const;
     id get_first_segment() const;
     id get_last_segment() const;
     size_t get_segment_count() const;
@@ -781,7 +782,12 @@ template<typename H> void db<H>::goto_segment(id segment_id) {
         // empty inital cluster; stop here and let iteration deal
         return;
     }
-    id pos = m_reg.m_forward_index.get_segment_position(segment_id);
+    id pos = 0;
+    if (m_reg.m_forward_index.has_segment(segment_id)) {
+        pos = m_reg.m_forward_index.get_segment_position(segment_id);
+    } else if (m_reg.m_forward_index.get_segment_count() > 0) {
+        pos = m_reg.m_forward_index.get_segment_position(m_reg.m_forward_index.get_first_segment());
+    }
     m_file->seek(pos, SEEK_SET);
 }
 
