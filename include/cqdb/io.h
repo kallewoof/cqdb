@@ -363,6 +363,7 @@ struct bitfield : public serializable {
         m_data = (uint8_t*)malloc(m_cap);
         m_data[m_cap - 1] = 0; // avoid random bits in out of bounds area, as even if user sets/unsets all cap bits, there may be some extraneous bits in the final byte
     }
+    ~bitfield() { delete m_data; }
     inline void clear() { memset(m_data, 0, m_cap); }
     inline bool operator[](size_t idx) const { return bool(G(idx)); }
     inline void set(size_t idx) { S(idx); }
