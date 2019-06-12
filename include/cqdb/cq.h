@@ -159,7 +159,6 @@ template<typename H> class db : public registry_delegate {
 protected:
     const std::string m_dbpath;
     const std::string m_prefix;
-    registry m_reg;
 
     void open(id cluster, bool readonly);
     void reopen();
@@ -169,6 +168,7 @@ protected:
 
 public:
     file* m_file;
+    registry m_reg;
     indexed_cluster m_ic;
 
     // struction
@@ -284,10 +284,10 @@ inline uint8_t time_rel_bits(int64_t time) { return ((time < 3 ? time : 3) << 6)
 template<typename H, typename T>
 class chronology : public db<H>, public compressor<H> {
 protected:
-    using db<H>::m_reg;
 public:
     using db<H>::derefer;
     using db<H>::refer;
+    using db<H>::m_reg;
     using db<H>::m_file;
     using db<H>::m_ic;
     long m_current_time;
@@ -371,7 +371,7 @@ public:
             if (bf[i]) {
                 *m_file << varint(m_file->tell() - m_references.at(references[i]));
             } else {
-                references[i].Serialize(*m_file);
+                serialize(*m_file, references[i]);
             }
         }
     }
@@ -383,7 +383,7 @@ public:
         if (known) {
             *m_file << varint(m_file->tell() - m_references.at(reference));
         } else {
-            reference.Serialize(*m_file);
+            serialize(*m_file, reference);
         }
     }
 
@@ -399,7 +399,7 @@ public:
             if (bf[i]) {
                 references.push_back(m_dictionary.at(m_file->tell() - varint::load(m_file))->m_hash);
             } else {
-                u.Unserialize(*stm);
+                deserialize(*stm, u);
                 references.push_back(u);
             }
         }
@@ -412,7 +412,7 @@ public:
         if (known) {
             reference = m_dictionary.at(m_file->tell() - varint::load(m_file))->m_hash;
         } else {
-            reference.Unserialize(*m_file);
+            deserialize(*m_file, reference);
         }
     }
 
@@ -672,7 +672,7 @@ template<typename H> void db<H>::refer(object<H>* t) {
 template<typename H> void db<H>::refer(const H& hash) {
     if (m_readonly) throw db_error("readonly database");
     assert(m_file);
-    hash.Serialize(*m_file);
+    serialize(*m_file, hash);
 }
 
 template<typename H> id db<H>::derefer() {
@@ -682,7 +682,7 @@ template<typename H> id db<H>::derefer() {
 
 template<typename H> H& db<H>::derefer(H& hash) {
     assert(m_file);
-    hash.Unserialize(*m_file);
+    deserialize(*m_file, hash);
     return hash;
 }
 
@@ -727,7 +727,7 @@ template<typename H> void db<H>::refer(object<H>** ts, size_t sz) {
     // write unknown object refs
     for (id i = 0; i < sz; ++i) {
         if (ts[i]->m_sid == unknownid) {
-            ts[i]->m_hash.Serialize(*m_file);
+            serialize(*m_file, ts[i]->m_hash);
         }
     }
 }
@@ -752,7 +752,7 @@ template<typename H> void db<H>::derefer(std::set<id>& known_out,  std::set<H>& 
     // read unknown refs
     for (id i = 0; i < unknown; ++i) {
         H h;
-        h.Unserialize(*m_file);
+        deserialize(*m_file, h);
         unknown_out.insert(h);
     }
 }

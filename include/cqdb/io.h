@@ -48,12 +48,12 @@ S(uint8_t); S(uint16_t); S(uint32_t); S(uint64_t); S(int8_t); S(int16_t); S(int3
 class serializer {
 public:
     virtual ~serializer() {}
-    virtual bool eof() =0;
+    virtual bool eof() { return true; /* streams are by default always eof */ }
     virtual bool empty() { return tell() == 0 && eof(); }
-    virtual size_t write(const uint8_t* data, size_t len) =0;
-    virtual size_t read(uint8_t* data, size_t len) =0;
-    virtual void seek(long offset, int whence) =0;
-    virtual long tell() =0;
+    virtual size_t write(const uint8_t* data, size_t len) { throw io_error("write-only stream"); /* override to make writeable */ }
+    virtual size_t read(uint8_t* data, size_t len) { throw io_error("readonly stream"); /* override to make readable */ }
+    virtual void seek(long offset, int whence) { throw io_error("non-seekable stream"); /* override to make seekable */ }
+    virtual long tell()  { throw io_error("stream without tell support"); /* override to make tellable */ }
     uint8_t get_uint8();
     virtual void flush() {}
 
@@ -101,6 +101,17 @@ struct varint : public serializable {
     prepare_for_serialization();
     static inline id load(serializer* s) { varint v(s); return v.m_value; }
 };
+
+template<typename Stream> void serialize(Stream& stm, const std::string& str) {
+    varint(str.size()).serialize(&stm);
+    stm.write((const uint8_t*)str.data(), str.size());
+}
+
+template<typename Stream> void deserialize(Stream& stm, std::string& str) {
+    size_t sz = varint::load(&stm);
+    str.resize(sz);
+    stm.read((uint8_t*)str.data(), sz);
+}
 
 template<typename T, typename Stream> void serialize(Stream& stm, const std::vector<T>& vec) {
     varint(vec.size()).serialize(&stm);
@@ -173,10 +184,10 @@ public:
 
 template<typename H> class compressor {
 public:
-    virtual void compress(serializer* stm, const std::vector<H>& references) { varint(references.size()).serialize(stm); for (const auto& u : references) u.Serialize(*stm); }
-    virtual void compress(serializer* stm, const H& reference) { reference.Serialize(*stm); }
-    virtual void decompress(serializer* stm, std::vector<H>& references) { id c = varint::load(stm); references.resize(c); for (id i = 0; i < c; ++i) references[i].Unserialize(*stm); }
-    virtual void decompress(serializer* stm, H& reference) { reference.Unserialize(*stm); }
+    virtual void compress(serializer* stm, const std::vector<H>& references) { varint(references.size()).serialize(stm); for (const auto& u : references) serialize(*stm, u); }
+    virtual void compress(serializer* stm, const H& reference) { serialize(*stm, reference); }
+    virtual void decompress(serializer* stm, std::vector<H>& references) { id c = varint::load(stm); references.resize(c); for (id i = 0; i < c; ++i) deserialize(*stm, references[i]); }
+    virtual void decompress(serializer* stm, H& reference) { deserialize(*stm, reference); }
 };
 
 /**

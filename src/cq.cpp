@@ -71,7 +71,7 @@ id header::get_last_segment() const {
 // registry
 
 id registry::prepare_cluster_for_segment(id segment) {
-    if (segment > m_tip) {
+    if (segment > m_tip || (m_tip == 0 && m_clusters.m.size() == 0)) {
         if (m_clusters.m.size() == 0 || segment / m_cluster_size > m_tip / m_cluster_size) {
             m_clusters.m.insert(segment / m_cluster_size);
         }

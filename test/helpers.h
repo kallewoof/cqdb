@@ -2,6 +2,12 @@
 #include <cqdb/cq.h>
 #include <test/uint256.h>
 
+#define BITCOIN_SER(T) \
+    template<typename Stream> void serialize(Stream& stm, const T& t) { t.Serialize(stm); } \
+    template<typename Stream> void deserialize(Stream& stm, T& t) { t.Unserialize(stm); }
+
+BITCOIN_SER(uint256);
+
 static inline cq::conditional* get_varint(uint8_t b, cq::id value) {
     switch (b) {
         case 1: return new cq::cond_varint<1>(value);
@@ -18,10 +24,10 @@ static inline cq::conditional* get_varint(uint8_t b, cq::id value) {
 struct test_object : public cq::object<uint256> {
     using cq::object<uint256>::object;
     void serialize(cq::serializer* stream) const override {
-        m_hash.Serialize(*stream);
+        ::serialize(*stream, m_hash);
     }
     void deserialize(cq::serializer* stream) override {
-        m_hash.Unserialize(*stream);
+        ::deserialize(*stream, m_hash);
     }
     static std::shared_ptr<test_object> make_random_unknown(cq::compressor<uint256>* compressor) {
         uint256 hash;
