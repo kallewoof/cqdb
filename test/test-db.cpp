@@ -693,28 +693,25 @@ TEST_CASE("Database", "[db]") {
         const auto& reg = db->get_registry();
         db->begin_segment(1);
         auto pos = db->m_file->tell();
-        size_t filecount = db_file_count();
         REQUIRE(1 == reg.get_clusters().size());
         REQUIRE(0 == db->get_cluster());
-        REQUIRE(1 == db->get_forward_index().get_segment_count());
+        REQUIRE(2 == db->get_forward_index().get_segment_count());
         REQUIRE(pos == db->get_forward_index().get_segment_position(1));
-        REQUIRE(1 == db->get_forward_index().get_first_segment());
+        REQUIRE(0 == db->get_forward_index().get_first_segment());
         REQUIRE(1 == db->get_forward_index().get_last_segment());
         db->begin_segment(1024);
         auto pos2 = db->m_file->tell();
         REQUIRE(2 == reg.get_clusters().size());
         REQUIRE(1 == db->get_cluster());
-        size_t filecount2 = db_file_count();
-        REQUIRE(filecount2 == filecount + 2); // clister00001.cq, and cq.registry (created here because the first cluster change happens)
 
         REQUIRE(1 == db->get_forward_index().get_segment_count());
         REQUIRE(pos2 == db->get_forward_index().get_segment_position(1024));
         REQUIRE(1024 == db->get_forward_index().get_first_segment());
         REQUIRE(1024 == db->get_forward_index().get_last_segment());
 
-        REQUIRE(1 == db->get_back_index().get_segment_count());
+        REQUIRE(2 == db->get_back_index().get_segment_count());
         REQUIRE(pos == db->get_back_index().get_segment_position(1));
-        REQUIRE(1 == db->get_back_index().get_first_segment());
+        REQUIRE(0 == db->get_back_index().get_first_segment());
         REQUIRE(1 == db->get_back_index().get_last_segment());
     }
 

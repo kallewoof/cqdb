@@ -50,6 +50,48 @@ void varint::deserialize(serializer* stream) {
     }
 }
 
+// void varint::serialize(serializer* stream) const {
+//     uint8_t u8;
+//     if (m_value < 253) {
+//         u8 = m_value;
+//         stream->w(u8);
+//     } else if (m_value <= 253 + 0xffff) {
+//         u8 = 253;
+//         uint16_t u16 = (m_value - 253);
+//         stream->w(u8);
+//         stream->w(u16);
+//     } else if (m_value <= 253 + 0xffff) {
+//         u8 = 254;
+//         uint32_t u32 = (m_value - 253 - 0xffff);
+//         stream->w(u8);
+//         stream->w(u32);
+//     } else {
+//         u8 = 255;
+//         uint64_t u64 = (m_value - 254 - 0xffffffff);
+//         stream->w(u8);
+//         stream->w(u64);
+//     }
+// }
+
+// void varint::deserialize(serializer* stream) {
+//     uint8_t u8 = stream->get_uint8();
+//     if (u8 < 253) {
+//         m_value = u8;
+//     } else if (u8 == 253) {
+//         uint16_t u16;
+//         stream->r(u16);
+//         m_value = 253 + u16;
+//     } else if (u8 == 254) {
+//         uint32_t u32;
+//         stream->r(u32);
+//         m_value = 253 + 0xffff + u32;
+//     } else {
+//         uint64_t u64;
+//         stream->r(u64);
+//         m_value = 254 + 0xffffffff + u64;
+//     }
+// }
+
 void incmap::serialize(serializer* stream) const {
     // VARINT : number of entries
     *stream << varint((id)(m.size()));

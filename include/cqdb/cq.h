@@ -431,9 +431,10 @@ public:
     //
 
     void push_event(long timestamp, uint8_t cmd, std::shared_ptr<T> subject = nullptr, bool refer_only = true) {
-        if (!m_file) throw db_error("event pushed with null sector (begin sector(s) first)");
+        if (!m_file) begin_segment(0);
         assert(timestamp >= m_current_time);
         bool known = subject.get() && m_references.count(subject->m_hash);
+        if (known && subject->m_sid == 0) subject->m_sid = m_references[subject->m_hash];
         uint8_t header_byte = cmd | (known << 5) | time_rel_bits(timestamp - m_current_time);
         *m_file << header_byte;
         _write_time(H, header_byte, m_current_time, timestamp); // this updates m_current_time
@@ -592,7 +593,10 @@ template<typename H> db<H>::db(const std::string& dbpath, const std::string& pre
         } catch (const fs_error& err) {
             // we do not catch io_error's, and an io_error is thrown if cq.registry existed but deserialization failed,
             // which should be a crash
+            begin_segment(m_reg.m_tip);
         }
+    } else {
+        begin_segment(m_reg.m_tip);
     }
 }
 
